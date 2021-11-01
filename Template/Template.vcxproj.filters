@@ -1,0 +1,62 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="_app\core.cpp">
+      <Filter>APP</Filter>
+    </ClCompile>
+    <ClCompile Include="_app\data_handling.cpp">
+      <Filter>APP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\_shared\package_definition.c">
+      <Filter>SHARED</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+    <None Include="..\resources\font_ttf.bin" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="SHARED">
+      <UniqueIdentifier>{789cb907-2d0f-49dd-ac8a-32bef93f125d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="APP">
+      <UniqueIdentifier>{f5af3410-8c42-4371-a809-74426500a7f3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="RESOURCE">
+      <UniqueIdentifier>{80798a36-9a54-4167-9280-6874c85b1ebd}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="_app\core.h">
+      <Filter>APP</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>RESOURCE</Filter>
+    </ClInclude>
+    <ClInclude Include="_app\data_handling.h">
+      <Filter>APP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\_shared\package_definition.h">
+      <Filter>SHARED</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\Resources\icon_src.ico">
+      <Filter>RESOURCE</Filter>
+    </Image>
+    <Image Include="..\Resources\ATLAS.png">
+      <Filter>RESOURCE</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="App.rc">
+      <Filter>RESOURCE</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Font Include="..\Resources\Lobster_1.3.ttf">
+      <Filter>RESOURCE</Filter>
+    </Font>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="main_esp32.cpp" />
+    <ClCompile Include="..\_shared\package_definition.c">
+      <Filter>SHARED</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="SHARED">
+      <UniqueIdentifier>{789cb907-2d0f-49dd-ac8a-32bef93f125d}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\_shared\package_definition.h">
+      <Filter>SHARED</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
