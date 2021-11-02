@@ -17,10 +17,7 @@ memfile* CoreWorker::_shared::get_file_atlas()
 
 void CoreWorker::_esp32_communication::close_all()
 {
-	temptexture.destroy();
-	tempmemory.close();
-
-	packages_to_process.clear();
+	package_combine_file.reset_this();
 	packages_to_send.clear();
 
 	con.reset();
@@ -95,6 +92,10 @@ void CoreWorker::hook_display_default()
 			mous->draw();
 		}
 
+		if (!shrd.latest_esp32_texture.empty()) {
+			shrd.latest_esp32_texture->draw_scaled_at(-0.5f, -0.5f, 0.5f, 0.5f);
+		}
+
 		std::this_thread::sleep_until(timm);
 	});
 }
@@ -131,8 +132,10 @@ bool CoreWorker::start_esp32_threads()
 		}
 		else {
 			TCP_client& client = espp.con->current;
-			int res = 0;
 
+#ifdef CONNECTION_VERBOSE
+			cout << console::color::DARK_PURPLE << "ESP32 SEND";
+#endif
 			// ############################################
 			// # SEND
 			// ############################################
@@ -146,26 +149,114 @@ bool CoreWorker::start_esp32_threads()
 			}
 			MYASST2(client.send((char*)&spkg, sizeof(spkg)), "Can't prepare empty package.");
 
+#ifdef CONNECTION_VERBOSE
+			cout << console::color::DARK_PURPLE << "ESP32 RECV";
+#endif
 			// ############################################
 			// # RECV
 			// ############################################
 			MYASST2(client.recv(pkg), "Failed recv client.");
 
+#ifdef CONNECTION_VERBOSE
+			cout << console::color::DARK_PURPLE << "ESP32 HANDLE";
+#endif
+
 			switch (pkg.type) {
 			case PKG_ESP_DETECTED_SOMETHING:
 			{
-				cout << console::color::AQUA << "[CLIENT] ESP32 said it detected something!";
+				cout << console::color::AQUA << "[CLIENT] ESP32 said it detected something! Expecting a file...";
+				
+				espp.package_combine_file = make_hybrid_derived<file, tempfile>();
+				//espp.package_combine_file = make_hybrid<file>();
+				if (!((tempfile*)espp.package_combine_file.get())->open("ass_temp_handling_texture_XXXXXX.jpg")) {
+				//if (!(espp.package_combine_file->open("ass_temp_handling_texture_" + std::to_string((int)al_get_time()) + ".jpg", file::open_mode_e::READWRITE_REPLACE))) {
+					cout << console::color::RED << "[CLIENT] I can't open a temporary file. Sorry! ABORTING!";
+					espp.status = _esp32_communication::package_status::NON_CONNECTED;
+					client.close_socket();
+					return;
+				}
 				espp.status = _esp32_communication::package_status::PROCESSING_IMAGE;
 			}
 			break;
 			case PKG_ESP_JPG_SEND:
 			{
-				std::string mov;
-				for (unsigned long a = 0; a < pkg.len; a++) mov += pkg.data.esp.raw_data[a];
-				cout << console::color::AQUA << "[CLIENT] ESP32 block of data:";
-				cout << console::color::AQUA << "[CLIENT] {" << mov << "}";
-				cout << console::color::AQUA << "[CLIENT] Remaining: " << pkg.left;
-				cout << console::color::AQUA << "[CLIENT] Size of this: " << pkg.len;
+				//std::string mov;
+				//for (unsigned long a = 0; a < pkg.len; a++) mov += pkg.data.esp.raw_data[a];
+				//cout << console::color::AQUA << "[CLIENT] ESP32 block of data:";
+				//cout << console::color::AQUA << "[CLIENT] {" << mov << "}";
+				//cout << console::color::AQUA << "[CLIENT] Remaining: " << pkg.left;
+				//cout << console::color::AQUA << "[CLIENT] Size of this: " << pkg.len;
+				cout << console::color::AQUA << "[CLIENT] Receiving packages... (remaining: " << pkg.left << " package(s), max size remaining: " << (pkg.left * PACKAGE_SIZE) << ")";
+				if (espp.package_combine_file.empty()) {
+					cout << console::color::RED << "[CLIENT] The package order wasn't right! File was not opened! ABORTING!";
+					espp.status = _esp32_communication::package_status::NON_CONNECTED;
+					client.close_socket();
+					return;
+				}
+
+				if (espp.package_combine_file->write(pkg.data.raw, pkg.len) != pkg.len) {
+					cout << console::color::RED << "[CLIENT] Temporary file has stopped working?! ABORTING!";
+					espp.status = _esp32_communication::package_status::NON_CONNECTED;
+					client.close_socket();
+					return;
+				}
+
+				if (pkg.left == 0) {
+					cout << console::color::RED << "[CLIENT] End of file!";
+					espp.package_combine_file->flush();
+
+					cout << console::color::AQUA << "[CLIENT] Opening file and analysing...";
+
+					for (size_t fails = 0; fails < 50 && !espp.package_combine_file->flush(); fails++) {
+						cout << console::color::AQUA << "[CLIENT] Can't flush! Trying again.";
+						std::this_thread::sleep_for(std::chrono::milliseconds(10));
+					}
+
+					cout << console::color::AQUA << "[CLIENT] File has " << espp.package_combine_file->size() << " bytes.";
+
+					espp.package_combine_file->seek(0, file::seek_mode_e::BEGIN);
+
+					{
+						std::vector<char> buff;
+						char minibuf[256];
+						size_t herr = 0;
+						while (herr = espp.package_combine_file->read(minibuf, 256)) buff.insert(buff.end(), minibuf, minibuf + herr);
+
+						cout << console::color::AQUA << "Check HASH: " << sha256(buff) << ", size: " << buff.size();
+					}
+
+					espp.package_combine_file->seek(0, file::seek_mode_e::BEGIN);
+
+					bool gud = false;
+
+					auto txtur = make_hybrid<texture>();
+
+					dspy.disp.add_run_once_in_drawing_thread([&] {
+						gud = txtur->load(espp.package_combine_file);
+					}).wait();
+
+					if (!gud) { // txtur->load(texture_config().set_file(espp.package_combine_file).set_flags(ALLEGRO_MEMORY_BITMAP).set_format(ALLEGRO_PIXEL_FORMAT_ANY))
+						cout << console::color::RED << "[CLIENT] Could not load the file as texture! ABORT!";
+						espp.status = _esp32_communication::package_status::NON_CONNECTED;
+						client.close_socket();
+						return;
+					}
+
+					shrd.latest_esp32_file = espp.package_combine_file;
+					shrd.latest_esp32_texture = txtur;
+
+					cout << console::color::AQUA << "[CLIENT] Checking image existance...";
+
+					//cout << console::color::AQUA << "[CLIENT] Analysing image...";
+
+					// do analysis
+
+					//shrd.latest_esp32_file = espp.package_combine_file;
+					//shrd.latest_esp32_texture = txtur;
+
+					cout << console::color::AQUA << "[CLIENT] Done analysing image.";
+				}
+
 				espp.status = pkg.left > 0 ? _esp32_communication::package_status::PROCESSING_IMAGE : _esp32_communication::package_status::IDLE;
 			}
 			break;
@@ -174,9 +265,14 @@ bool CoreWorker::start_esp32_threads()
 				cout << console::color::AQUA << "[CLIENT] ESP32 got weight info:";
 				cout << console::color::AQUA << "[CLIENT] Good: " << pkg.data.esp.weight_info.good_side_kg << " kg";
 				cout << console::color::AQUA << "[CLIENT] Bad:  " << pkg.data.esp.weight_info.bad_side_kg << " kg";
+				espp.status = _esp32_communication::package_status::IDLE;
 			}
 			break;
 			default:
+				espp.status = _esp32_communication::package_status::IDLE;
+#ifdef CONNECTION_VERBOSE
+				cout << console::color::DARK_PURPLE << "ESP32 NO DATA";
+#endif
 				break;
 			}
 		}
@@ -197,7 +293,7 @@ bool CoreWorker::full_load()
 			.set_width(800)
 			.set_height(600)
 		)
-		.set_extra_flags(ALLEGRO_RESIZABLE | ALLEGRO_OPENGL/* | ALLEGRO_NOFRAME*/)
+		.set_extra_flags(ALLEGRO_RESIZABLE | ALLEGRO_DIRECT3D_INTERNAL/* | ALLEGRO_NOFRAME*/)
 		.set_window_title("AutoSmokeSelector APP")
 		.set_fullscreen(false)
 		//.set_vsync(true)
@@ -430,6 +526,7 @@ void CoreWorker::handle_display_event(const ALLEGRO_EVENT& ev)
 	switch (ev.type) {
 	case ALLEGRO_EVENT_DISPLAY_CLOSE:
 		shrd.kill_all = true;
+		if (++shrd.kill_tries > 5) std::terminate(); // abort totally
 		break;
 	case ALLEGRO_EVENT_DISPLAY_RESIZE:
 	{

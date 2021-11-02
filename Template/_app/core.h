@@ -5,6 +5,7 @@
 #include "data_handling.h"
 #include "../../_shared/package_definition.h"
 
+//#define CONNECTION_VERBOSE
 #define MYASST2(X, MSGGG) if (!(X)) {Lunaris::cout << Lunaris::console::color::RED << MSGGG; Lunaris::cout << Lunaris::console::color::RED << "AUTOMATIC ABORT BEGUN"; client.close_socket(); return; }
 
 using namespace Lunaris;
@@ -25,11 +26,15 @@ class CoreWorker {
 		sprite_pair_screen_vector casted_boys = get_default_sprite_map();
 
 		std::atomic_bool kill_all = false;
+		std::atomic_int kill_tries = 0;
 		float generic_progressbar = 0.0f;
 		std::atomic_bool progressbar_mode = false;
 
 		mouse mouse_work;
 		sprite_pair mouse_pair; // has block in it
+
+		hybrid_memory<file> latest_esp32_file; // set after processing
+		hybrid_memory<texture> latest_esp32_texture; // set after processing
 
 		_shared(std::function<ALLEGRO_TRANSFORM(void)>);
 
@@ -55,11 +60,8 @@ class CoreWorker {
 
 		package_status status = package_status::NON_CONNECTED; // to display
 
-		memfile tempmemory; // used to store whole jpg so then the thread can load into the texture
-		texture temptexture; // load in software, no problem.
-
 		safe_vector<esp_package> packages_to_send; // commu has to send this ones.
-		safe_vector<esp_package> packages_to_process; // has recv these ones.
+		hybrid_memory<file> package_combine_file; // for image load later on.
 
 		void close_all();
 	};

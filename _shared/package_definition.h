@@ -7,7 +7,7 @@ extern "C" {
 #include <string.h>
 #include <stdlib.h>
 
-#define PACKAGE_SIZE 16 // obviamente será maior, isso era pra testar só
+#define PACKAGE_SIZE (1 << 10)
 #define ESP_HOST_PORT 50000
 #define ESP_IP_ADDRESS "127.0.0.1" // alterar depois
 #define PLANT_GOOD 1
