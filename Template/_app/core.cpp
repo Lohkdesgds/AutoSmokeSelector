@@ -73,30 +73,35 @@ void CoreWorker::hook_display_default()
 	_post_update_display();
 	dspy.disp.hook_draw_function([&](const display_async& self) {
 
-		const auto timm = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 3);
-		
-		static color bluck(16, 16, 16);
-		bluck.clear_to_this();
+		try {
+			const auto timm = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 3);
+
+			static color bluck(16, 16, 16);
+			bluck.clear_to_this();
 
 
-		shrd.casted_boys[shrd.screen].safe([&](std::vector<sprite_pair>& mypairs) {
-			for (auto& i : mypairs) {
-				i.get_sprite()->think();
-				i.get_sprite()->draw();
+			shrd.casted_boys[shrd.screen].safe([&](std::vector<sprite_pair>& mypairs) {
+				for (auto& i : mypairs) {
+					i.get_sprite()->think();
+					i.get_sprite()->draw();
+				}
+				});
+
+			{
+				const auto mous = shrd.mouse_pair.get_sprite();
+				mous->think();
+				mous->draw();
 			}
-		});
 
-		{
-			const auto mous = shrd.mouse_pair.get_sprite();
-			mous->think();
-			mous->draw();
+			//if (!shrd.latest_esp32_texture.empty()) {
+			//	shrd.latest_esp32_texture->draw_scaled_at(-0.5f, -0.5f, 0.5f, 0.5f);
+			//}
+
+			std::this_thread::sleep_until(timm);
 		}
-
-		if (!shrd.latest_esp32_texture.empty()) {
-			shrd.latest_esp32_texture->draw_scaled_at(-0.5f, -0.5f, 0.5f, 0.5f);
+		catch (const std::exception& e) {
+			cout << console::color::DARK_RED << "Exception @ drawing thread: " << e.what();
 		}
-
-		std::this_thread::sleep_until(timm);
 	});
 }
 
@@ -242,8 +247,8 @@ bool CoreWorker::start_esp32_threads()
 						return;
 					}
 
-					shrd.latest_esp32_file = espp.package_combine_file;
-					shrd.latest_esp32_texture = txtur;
+					shrd.latest_esp32_texture.replace_shared(std::move(txtur.reset_shared()));
+					shrd.latest_esp32_file.replace_shared(std::move(espp.package_combine_file.reset_shared()));
 
 					cout << console::color::AQUA << "[CLIENT] Checking image existance...";
 
@@ -373,6 +378,9 @@ bool CoreWorker::full_load()
 	shrd.texture_map[textures_enum::MOUSE]				= make_hybrid<texture>(dspy.src_atlas->create_sub(0, 200, 200, 200));
 	shrd.texture_map[textures_enum::BUTTON_UP]			= make_hybrid<texture>(dspy.src_atlas->create_sub(350, 0, 600, 90));
 	shrd.texture_map[textures_enum::BUTTON_DOWN]		= make_hybrid<texture>(dspy.src_atlas->create_sub(350, 90, 600, 90));
+	shrd.latest_esp32_texture = make_hybrid<texture>(); // just so it gets replaced later
+	//shrd.latest_esp32_texture->create(800, 600);
+
 	post_progress_val(0.75f);
 
 	cout << console::color::DARK_GRAY << "Preparing scenes...";
@@ -426,7 +434,8 @@ bool CoreWorker::full_load()
 			shrd.casted_boys[stage_enum::HOME].push_back({
 				std::move(each),
 				[](auto) {},
-				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::OPTIONS; } }
+				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { 
+					shrd.screen = stage_enum::OPTIONS; } }
 			});
 
 			// Home button 2
@@ -463,6 +472,14 @@ bool CoreWorker::full_load()
 
 		cout << console::color::DARK_GRAY << "Building OPTIONS sprites...";
 		{
+			// Image rendering
+			make_blk();
+			blk->texture_insert(shrd.latest_esp32_texture);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.4f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, -0.2f);
+			shrd.casted_boys[stage_enum::OPTIONS].push_back({ std::move(each) });
+
 			// Home button
 			make_blk();
 			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
@@ -470,7 +487,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.45f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.75f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 25, 25));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
