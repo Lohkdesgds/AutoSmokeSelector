@@ -75,10 +75,8 @@ void CoreWorker::hook_display_default()
 
 		try {
 			const auto timm = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 3);
-
-			static color bluck(16, 16, 16);
-			bluck.clear_to_this();
-
+			
+			shrd.background_color.clear_to_this();
 
 			shrd.casted_boys[shrd.screen].safe([&](std::vector<sprite_pair>& mypairs) {
 				for (auto& i : mypairs) {
@@ -169,7 +167,7 @@ bool CoreWorker::start_esp32_threads()
 			switch (pkg.type) {
 			case PKG_ESP_DETECTED_SOMETHING:
 			{
-				cout << console::color::AQUA << "[CLIENT] ESP32 said it detected something! Expecting a file...";
+				cout << console::color::AQUA << "[CLIENT] ESP32 said it detected something! Expecting/receiving a file...";
 				
 				espp.package_combine_file = make_hybrid_derived<file, tempfile>();
 				//espp.package_combine_file = make_hybrid<file>();
@@ -191,7 +189,7 @@ bool CoreWorker::start_esp32_threads()
 				//cout << console::color::AQUA << "[CLIENT] {" << mov << "}";
 				//cout << console::color::AQUA << "[CLIENT] Remaining: " << pkg.left;
 				//cout << console::color::AQUA << "[CLIENT] Size of this: " << pkg.len;
-				cout << console::color::AQUA << "[CLIENT] Receiving packages... (remaining: " << pkg.left << " package(s), max size remaining: " << (pkg.left * PACKAGE_SIZE) << ")";
+				//cout << console::color::AQUA << "[CLIENT] Receiving packages... (remaining: " << pkg.left << " package(s), max size remaining: " << (pkg.left * PACKAGE_SIZE) << ")";
 				if (espp.package_combine_file.empty()) {
 					cout << console::color::RED << "[CLIENT] The package order wasn't right! File was not opened! ABORTING!";
 					espp.status = _esp32_communication::package_status::NON_CONNECTED;
@@ -236,9 +234,10 @@ bool CoreWorker::start_esp32_threads()
 
 					auto txtur = make_hybrid<texture>();
 
-					dspy.disp.add_run_once_in_drawing_thread([&] {
-						gud = txtur->load(espp.package_combine_file);
-					}).wait();
+					//dspy.disp.add_run_once_in_drawing_thread([&] {
+					//	gud = txtur->load(espp.package_combine_file);
+					//}).wait();
+					gud = txtur->load(espp.package_combine_file);
 
 					if (!gud) { // txtur->load(texture_config().set_file(espp.package_combine_file).set_flags(ALLEGRO_MEMORY_BITMAP).set_format(ALLEGRO_PIXEL_FORMAT_ANY))
 						cout << console::color::RED << "[CLIENT] Could not load the file as texture! ABORT!";
@@ -247,19 +246,119 @@ bool CoreWorker::start_esp32_threads()
 						return;
 					}
 
-					shrd.latest_esp32_texture.replace_shared(std::move(txtur.reset_shared()));
-					shrd.latest_esp32_file.replace_shared(std::move(espp.package_combine_file.reset_shared()));
-
-					cout << console::color::AQUA << "[CLIENT] Checking image existance...";
-
-					//cout << console::color::AQUA << "[CLIENT] Analysing image...";
+					cout << console::color::AQUA << "[CLIENT] Working on image...";
 
 					// do analysis
 
-					//shrd.latest_esp32_file = espp.package_combine_file;
-					//shrd.latest_esp32_texture = txtur;
+					{
+						ALLEGRO_LOCKED_REGION* region = al_lock_bitmap(txtur->get_raw_bitmap(), ALLEGRO_PIXEL_FORMAT_RGB_888, ALLEGRO_LOCK_READONLY);
+						if (!region) {
+							cout << console::color::RED << "[CLIENT] Can't open image as RGB888.";
+						}
+						else {
+					
+							struct __rgb {
+								unsigned char b,g,r;
+							};
 
-					cout << console::color::AQUA << "[CLIENT] Done analysing image.";
+							__rgb* const beg = (__rgb*)region->data;
+					
+							unsigned long long red_depth = 0, green_depth = 0, blue_depth = 0; // count
+							unsigned long long brightness_center = 0; // brightness of center
+					
+							cout << console::color::AQUA << "[CLIENT] Processing image...";
+					
+							const size_t min_x = 0.3 * txtur->get_width();
+							const size_t max_x = 0.7 * txtur->get_width();
+							const size_t min_y = 0.3 * txtur->get_height();
+							const size_t max_y = 0.7 * txtur->get_height();
+
+							size_t amount = 0;
+							size_t amount_brightness = 0;
+
+							for (size_t y = 0; y < txtur->get_height(); y++) {
+								for (size_t x = 0; x < txtur->get_width(); x++) {
+
+									if ((x > min_x && x < max_x) && (y > min_y && y < max_y)) {
+
+										unsigned char max_val, min_val;
+
+										max_val = beg[y * txtur->get_width() + x].r;
+										if (beg[y * txtur->get_width() + x].g > max_val) max_val = beg[y * txtur->get_width() + x].g;
+										if (beg[y * txtur->get_width() + x].b > max_val) max_val = beg[y * txtur->get_width() + x].b;
+
+										//min_val = beg[y * txtur->get_width() + x].r;
+										//if (beg[y * txtur->get_width() + x].g < min_val) min_val = beg[y * txtur->get_width() + x].g;
+										//if (beg[y * txtur->get_width() + x].b < min_val) min_val = beg[y * txtur->get_width() + x].b;
+
+										brightness_center += max_val; // static_cast<unsigned char>(0.5f * (max_val + min_val));
+
+
+										red_depth	+= beg[y * txtur->get_width() + x].r;
+										green_depth += beg[y * txtur->get_width() + x].g;
+										blue_depth	+= beg[y * txtur->get_width() + x].b;
+
+										++amount_brightness;
+										++amount;
+									}
+									else if ((x % 3) == 0 && (y % 3) == 0) { // per 9 do 1
+										red_depth	+= beg[y * txtur->get_width() + x].r;
+										green_depth += beg[y * txtur->get_width() + x].g;
+										blue_depth	+= beg[y * txtur->get_width() + x].b;
+										++amount;
+									}
+
+								}
+							}
+
+							brightness_center /= amount_brightness;
+
+							float resred = 0.0f, resgreen = 0.0f, resblue = 0.0f;
+							const double propp = 0.45; // how much sat compensation
+							const double corr_to_high = 0.10; // how much compensation to bright (up to +10%)
+							const double overflow_corr = 1.05f; // 1.0f = no overflow, less = less brightness and color
+							
+							{
+								auto lesser = red_depth;
+								if (green_depth < lesser) lesser = green_depth;
+								if (blue_depth < lesser) lesser = blue_depth;
+								if (lesser == 0) lesser = 1;
+							
+								auto highest = red_depth + 1;
+								if (green_depth > highest) highest = green_depth;
+								if (blue_depth > highest) highest = blue_depth;
+							
+								double prop_bright = brightness_center * 1.0 / 0xFF;
+							
+								resred		= static_cast<float>(((((red_depth   - lesser + 1) * 1.0 / (highest - lesser + 1)) * prop_bright) * propp + ((red_depth * 1.0 / highest)   * prop_bright) * (1.0 - propp))); // get highest of all of them then adjust to center brightness
+								resgreen	= static_cast<float>(((((green_depth - lesser + 1) * 1.0 / (highest - lesser + 1)) * prop_bright) * propp + ((green_depth * 1.0 / highest) * prop_bright) * (1.0 - propp))); // get highest of all of them then adjust to center brightness
+								resblue		= static_cast<float>(((((blue_depth  - lesser + 1) * 1.0 / (highest - lesser + 1)) * prop_bright) * propp + ((blue_depth * 1.0 / highest)  * prop_bright) * (1.0 - propp))); // get highest of all of them then adjust to center brightness
+							
+								//auto highflot = resred;
+								//if (resgreen > highflot) highflot = resgreen;
+								//if (resblue > highflot) highflot = resblue;
+							
+								resred	 += corr_to_high * (overflow_corr - resred);
+								resgreen += corr_to_high * (overflow_corr - resgreen);
+								resblue  += corr_to_high * (overflow_corr - resblue);
+							
+								resred = resred > 1.0f ? 1.0f : resred;
+								resgreen = resgreen > 1.0f ? 1.0f : resgreen;
+								resblue = resblue > 1.0f ? 1.0f : resblue;
+							}
+
+
+					
+
+							shrd.background_color = color(resred, resgreen, resblue);//static_cast<unsigned char>(red_depth), static_cast<unsigned char>(green_depth), static_cast<unsigned char>(blue_depth));
+
+						}
+						al_unlock_bitmap(txtur->get_raw_bitmap());
+					}
+
+
+					shrd.latest_esp32_texture.replace_shared(std::move(txtur.reset_shared()));
+					shrd.latest_esp32_file.replace_shared(std::move(espp.package_combine_file.reset_shared()));
 				}
 
 				espp.status = pkg.left > 0 ? _esp32_communication::package_status::PROCESSING_IMAGE : _esp32_communication::package_status::IDLE;
@@ -298,7 +397,7 @@ bool CoreWorker::full_load()
 			.set_width(800)
 			.set_height(600)
 		)
-		.set_extra_flags(ALLEGRO_RESIZABLE | ALLEGRO_DIRECT3D_INTERNAL/* | ALLEGRO_NOFRAME*/)
+		.set_extra_flags(ALLEGRO_RESIZABLE | ALLEGRO_OPENGL/* | ALLEGRO_NOFRAME*/)
 		.set_window_title("AutoSmokeSelector APP")
 		.set_fullscreen(false)
 		//.set_vsync(true)
@@ -435,7 +534,7 @@ bool CoreWorker::full_load()
 				std::move(each),
 				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { 
-					shrd.screen = stage_enum::OPTIONS; } }
+					shrd.screen = stage_enum::PREVIEW; } }
 			});
 
 			// Home button 2
@@ -470,7 +569,7 @@ bool CoreWorker::full_load()
 		}
 		post_progress_val(0.85f);
 
-		cout << console::color::DARK_GRAY << "Building OPTIONS sprites...";
+		cout << console::color::DARK_GRAY << "Building PREVIEW sprites...";
 		{
 			// Image rendering
 			make_blk();
@@ -478,7 +577,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.4f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, -0.2f);
-			shrd.casted_boys[stage_enum::OPTIONS].push_back({ std::move(each) });
+			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
 
 			// Home button
 			make_blk();
@@ -491,7 +590,7 @@ bool CoreWorker::full_load()
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 25, 25));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::OPTIONS].push_back({
+			shrd.casted_boys[stage_enum::PREVIEW].push_back({
 				std::move(each),
 				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } }

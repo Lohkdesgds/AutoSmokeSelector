@@ -35,6 +35,7 @@ class CoreWorker {
 
 		hybrid_memory<file> latest_esp32_file; // set after processing
 		hybrid_memory<texture> latest_esp32_texture; // set after processing
+		color background_color = color(16, 16, 16);
 
 		_shared(std::function<ALLEGRO_TRANSFORM(void)>);
 

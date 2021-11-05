@@ -4,7 +4,7 @@
 
 using namespace Lunaris;
 
-enum class stage_enum {HOME, OPTIONS, _SIZE};
+enum class stage_enum {HOME, PREVIEW, _SIZE};
 enum class textures_enum{MOUSE, LOADING, BUTTON_UP, BUTTON_DOWN, _SIZE};
 
 class sprite_pair {
