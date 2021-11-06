@@ -4,8 +4,13 @@
 
 using namespace Lunaris;
 
-enum class stage_enum {HOME, PREVIEW, _SIZE};
+enum class stage_enum {HOME, CONFIG, _SIZE};
 enum class textures_enum{MOUSE, LOADING, BUTTON_UP, BUTTON_DOWN, _SIZE};
+
+struct stage_set {
+	float min_y = 0.0f;
+	float max_y = 0.0f;
+};
 
 class sprite_pair {
 public:
@@ -14,6 +19,7 @@ public:
 		bool is_mouse_pressed = false;
 		bool is_click = false;
 		bool is_unclick = false;
+		mouse::mouse_event cpy;
 	};
 private:
 	hybrid_memory<sprite> sprite_ref;
@@ -34,3 +40,5 @@ public:
 using sprite_pair_screen_vector = std::unordered_map<stage_enum, safe_vector<sprite_pair>>;
 
 sprite_pair_screen_vector get_default_sprite_map();
+
+color process_image(texture&, const config&);

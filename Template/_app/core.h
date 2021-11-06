@@ -5,6 +5,8 @@
 #include "data_handling.h"
 #include "../../_shared/package_definition.h"
 
+#include <allegro5/allegro_native_dialog.h>
+
 //#define CONNECTION_VERBOSE
 #define MYASST2(X, MSGGG) if (!(X)) {Lunaris::cout << Lunaris::console::color::RED << MSGGG; Lunaris::cout << Lunaris::console::color::RED << "AUTOMATIC ABORT BEGUN"; client.close_socket(); return; }
 
@@ -20,6 +22,12 @@ const std::initializer_list<multi_pair<hybrid_memory<texture>, textures_enum>> d
 class CoreWorker {
 	struct _shared {
 		std::atomic<stage_enum> screen = stage_enum::HOME; // OK
+
+		std::unordered_map<stage_enum, stage_set> screen_set; // rules for screen
+		float current_offy = 0.0f; // offset right now
+
+		config conf; // general configuration for this app
+
 		hybrid_memory<file> file_font; // MEMFILE! // OK
 		hybrid_memory<file> file_atlas; // MEMFILE! // OK
 		fixed_multi_map_work<static_cast<size_t>(textures_enum::_SIZE), hybrid_memory<texture>, textures_enum> texture_map = default_textures; // OK
@@ -82,11 +90,13 @@ class CoreWorker {
 	void post_progress_val(const float); // 0..1, set progress val
 	void _post_update_display(); // when resize event is detected it's possible to just call this
 	void _post_update_display_one_o_one(); // 1:1 pixel transform
+	void post_update_display_auto();
 	
 	void handle_display_event(const ALLEGRO_EVENT&); // handle explicit display event
 	void handle_mouse_event(const int, const mouse::mouse_event&); // this is also the collision one because of the mouse click -> collision test optimization
 	
-	void full_close();
+	// if string, warn is shown with this
+	void full_close(const std::string& = "");
 
 
 	//stage_enum screen_now = stage_enum::LOADING;
