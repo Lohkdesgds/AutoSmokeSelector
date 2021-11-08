@@ -10,18 +10,28 @@
 //#define CONNECTION_VERBOSE
 #define MYASST2(X, MSGGG) if (!(X)) {Lunaris::cout << Lunaris::console::color::RED << MSGGG; Lunaris::cout << Lunaris::console::color::RED << "AUTOMATIC ABORT BEGUN"; client.close_socket(); return; }
 
+const size_t max_async_queue_size = 3;
+
 using namespace Lunaris;
 
 const std::initializer_list<multi_pair<hybrid_memory<texture>, textures_enum>> default_textures = {
 	{{}, textures_enum::MOUSE},
-	{{}, textures_enum::LOADING},
+	{{}, textures_enum::MOUSE_LOADING},
 	{{}, textures_enum::BUTTON_UP},
 	{{}, textures_enum::BUTTON_DOWN},
+	{{}, textures_enum::WIFI_SEARCHING},
+	{{}, textures_enum::WIFI_IDLE},
+	{{}, textures_enum::WIFI_TRANSFER},
+	{{}, textures_enum::WIFI_THINKING},
+	{{}, textures_enum::WIFI_COMMAND},
 };
 
 class CoreWorker {
 	struct _shared {
 		std::atomic<stage_enum> screen = stage_enum::HOME; // OK
+
+		safe_vector<std::function<void(void)>> task_queue;
+		thread async_queue;
 
 		std::unordered_map<stage_enum, stage_set> screen_set; // rules for screen
 		float current_offy = 0.0f; // offset right now
@@ -33,6 +43,9 @@ class CoreWorker {
 		fixed_multi_map_work<static_cast<size_t>(textures_enum::_SIZE), hybrid_memory<texture>, textures_enum> texture_map = default_textures; // OK
 		sprite_pair_screen_vector casted_boys = get_default_sprite_map();
 
+		color bad_plant, good_plant;
+		float bad_perc = 0.0f, good_perc = 0.0f;
+
 		std::atomic_bool kill_all = false;
 		std::atomic_int kill_tries = 0;
 		float generic_progressbar = 0.0f;
@@ -40,12 +53,16 @@ class CoreWorker {
 
 		mouse mouse_work;
 		sprite_pair mouse_pair; // has block in it
+		block wifi_blk; // has block in it
 
 		hybrid_memory<file> latest_esp32_file; // set after processing
 		hybrid_memory<texture> latest_esp32_texture; // set after processing
+		hybrid_memory<texture> latest_esp32_texture_orig; // memory bitmap in memory already baby
 		color background_color = color(16, 16, 16);
 
 		_shared(std::function<ALLEGRO_TRANSFORM(void)>);
+
+		void __async_queue();
 
 		memfile* get_file_font();
 		memfile* get_file_atlas();
@@ -80,6 +97,10 @@ class CoreWorker {
 	_esp32_communication espp;
 
 	bool get_is_loading();
+	void auto_handle_process_image(const bool = true);
+	// task, wait if number of tasks is bigger than
+	void async_task(std::function<void(void)>, const size_t = max_async_queue_size);
+	void auto_update_wifi_icon(const textures_enum);
 
 	void hook_display_load(); // simple bar, no resource needed
 	void hook_display_default(); // default enum scene thing
@@ -97,42 +118,7 @@ class CoreWorker {
 	
 	// if string, warn is shown with this
 	void full_close(const std::string& = "");
-
-
-	//stage_enum screen_now = stage_enum::LOADING;
-	//display_async display;
-	//mouse mouseev;
-	//keys shortcuts;
-	//
-	//memfile atlas_file, font_file;
-	//hybrid_memory<texture> atlas_texture;
-	//hybrid_memory<font> font_font;
-	//thread thinking_thread;
-	//
-	//block mouse_spr;
-	//std::unordered_map<std::string, hybrid_memory<texture>> texture_map;
-	//
-	//sprite_pair_screen_vector working_map;
-	//
-	//bool kill_display = false;
-	//
-	//std::unique_ptr<keyboard> kbev; // if needed, it's created, else ignore keyboard
-
-	//bool __full_load_async();
-	//
-	//void setup_sprites();
-	//
-	//bool draw();
-	//void think();
-	////void communicate(); // host
-	//
-	//// local (this thread, no queue)?
-	//void set_display_refresh_canvas(const bool = false);
-	//
-	//void handle_mouse(const int, const mouse::mouse_event&);
-	//void handle_key(const keys::key_event&);
 public:
 	CoreWorker();
-
 	bool work_and_yield();
 };

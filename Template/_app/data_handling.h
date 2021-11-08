@@ -4,8 +4,27 @@
 
 using namespace Lunaris;
 
-enum class stage_enum {HOME, CONFIG, _SIZE};
-enum class textures_enum{MOUSE, LOADING, BUTTON_UP, BUTTON_DOWN, _SIZE};
+enum class stage_enum {HOME, CONFIG, PREVIEW, _SIZE};
+enum class textures_enum{
+	MOUSE,			// Common mouse
+	MOUSE_LOADING,	// Mouse when loading, circle loading
+	BUTTON_UP,		// Bar, when not pressed
+	BUTTON_DOWN,	// Bar, when pressed
+	// related to esp32 on core
+	WIFI_SEARCHING,	// WiFi module is not connected
+	WIFI_IDLE,		// WiFi module is not working right now
+	WIFI_TRANSFER,	// WiFi module is downloading an image
+	WIFI_THINKING,	// WiFi module is thinking about colors
+	WIFI_COMMAND,	// WiFi module is sending a command
+	// end of related to esp32 on core
+	_SIZE,
+	// ASSIST ONES
+	__FIRST_WIFI = WIFI_SEARCHING,
+	__LAST_WIFI = WIFI_COMMAND
+};
+
+template<typename T>
+inline T limit_range_of(const T& val, const T& min, const T& max) { return val > max ? max : (val < min ? min : val); }
 
 struct stage_set {
 	float min_y = 0.0f;
@@ -42,3 +61,8 @@ using sprite_pair_screen_vector = std::unordered_map<stage_enum, safe_vector<spr
 sprite_pair_screen_vector get_default_sprite_map();
 
 color process_image(texture&, const config&);
+
+color config_to_color(const config&, const std::string&, const std::string&);
+void color_to_config(config&, const std::string&, const std::string&, const color&);
+
+float how_far(const color&, const color&);

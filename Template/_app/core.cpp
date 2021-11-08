@@ -5,6 +5,14 @@ CoreWorker::_shared::_shared(std::function<ALLEGRO_TRANSFORM(void)> f)
 {
 }
 
+void CoreWorker::_shared::__async_queue()
+{
+	if (task_queue.size()) {
+		if (auto& it = task_queue.index(0); it) it();
+		task_queue.erase(0);
+	}
+}
+
 memfile* CoreWorker::_shared::get_file_font()
 {
 	return (memfile*)file_font.get();
@@ -25,7 +33,36 @@ void CoreWorker::_esp32_communication::close_all()
 
 bool CoreWorker::get_is_loading()
 {
-	return espp.con ? !espp.con->current.has_socket() : true;
+	//return espp.con ? !espp.con->current.has_socket() : true;
+	return shrd.task_queue.size() > 0;
+}
+
+void CoreWorker::auto_handle_process_image(const bool asyncr)
+{
+	if (shrd.latest_esp32_texture_orig.empty()) return;
+
+	const auto ff = [&] {
+		shrd.background_color = process_image(*shrd.latest_esp32_texture_orig, shrd.conf);
+		shrd.bad_perc = how_far(shrd.bad_plant, shrd.background_color);
+		shrd.good_perc = how_far(shrd.good_plant, shrd.background_color);
+	};
+
+	if (asyncr) async_task(ff, 0);
+	else ff();
+}
+
+void CoreWorker::async_task(std::function<void(void)> f, const size_t max_waiting_tasks)
+{
+	while (shrd.task_queue.size() > max_waiting_tasks) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	shrd.task_queue.push_back(std::move(f));
+}
+
+void CoreWorker::auto_update_wifi_icon(const textures_enum mod)
+{
+	int corr = static_cast<int>(mod);
+	if (corr < static_cast<int>(textures_enum::__FIRST_WIFI) || corr > static_cast<int>(textures_enum::__LAST_WIFI)) return;
+	corr -= static_cast<int>(textures_enum::__FIRST_WIFI);
+	shrd.wifi_blk.set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, static_cast<size_t>(corr));
 }
 
 void CoreWorker::hook_display_load()
@@ -86,14 +123,13 @@ void CoreWorker::hook_display_default()
 				});
 
 			{
+				shrd.wifi_blk.think();
+				shrd.wifi_blk.draw();
+
 				const auto mous = shrd.mouse_pair.get_sprite();
 				mous->think();
 				mous->draw();
 			}
-
-			//if (!shrd.latest_esp32_texture.empty()) {
-			//	shrd.latest_esp32_texture->draw_scaled_at(-0.5f, -0.5f, 0.5f, 0.5f);
-			//}
 
 			std::this_thread::sleep_until(timm);
 		}
@@ -120,10 +156,12 @@ bool CoreWorker::start_esp32_threads()
 				cout << console::color::AQUA << "[CLIENT] New client!";
 				espp.con->current = std::move(cli);
 				espp.status = _esp32_communication::package_status::IDLE;
+				auto_update_wifi_icon(textures_enum::WIFI_IDLE);
 			}
 		}
 		if (!espp.con->current.has_socket() && espp.status != _esp32_communication::package_status::NON_CONNECTED) {
 			espp.status = _esp32_communication::package_status::NON_CONNECTED;
+			auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
 			cout << console::color::AQUA << "[CLIENT] Client disconnected.";
 		}
 	}, thread::speed::INTERVAL, 1.0);
@@ -175,10 +213,12 @@ bool CoreWorker::start_esp32_threads()
 				//if (!(espp.package_combine_file->open("ass_temp_handling_texture_" + std::to_string((int)al_get_time()) + ".jpg", file::open_mode_e::READWRITE_REPLACE))) {
 					cout << console::color::RED << "[CLIENT] I can't open a temporary file. Sorry! ABORTING!";
 					espp.status = _esp32_communication::package_status::NON_CONNECTED;
+					auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
 					client.close_socket();
 					return;
 				}
 				espp.status = _esp32_communication::package_status::PROCESSING_IMAGE;
+				auto_update_wifi_icon(textures_enum::WIFI_TRANSFER);
 			}
 			break;
 			case PKG_ESP_JPG_SEND:
@@ -193,6 +233,7 @@ bool CoreWorker::start_esp32_threads()
 				if (espp.package_combine_file.empty()) {
 					cout << console::color::RED << "[CLIENT] The package order wasn't right! File was not opened! ABORTING!";
 					espp.status = _esp32_communication::package_status::NON_CONNECTED;
+					auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
 					client.close_socket();
 					return;
 				}
@@ -200,6 +241,7 @@ bool CoreWorker::start_esp32_threads()
 				if (espp.package_combine_file->write(pkg.data.raw, pkg.len) != pkg.len) {
 					cout << console::color::RED << "[CLIENT] Temporary file has stopped working?! ABORTING!";
 					espp.status = _esp32_communication::package_status::NON_CONNECTED;
+					auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
 					client.close_socket();
 					return;
 				}
@@ -207,6 +249,7 @@ bool CoreWorker::start_esp32_threads()
 				if (pkg.left == 0) {
 					cout << console::color::RED << "[CLIENT] End of file!";
 					espp.package_combine_file->flush();
+					auto_update_wifi_icon(textures_enum::WIFI_THINKING);
 
 					cout << console::color::AQUA << "[CLIENT] Opening file and analysing...";
 
@@ -242,6 +285,7 @@ bool CoreWorker::start_esp32_threads()
 					if (!gud) { // txtur->load(texture_config().set_file(espp.package_combine_file).set_flags(ALLEGRO_MEMORY_BITMAP).set_format(ALLEGRO_PIXEL_FORMAT_ANY))
 						cout << console::color::RED << "[CLIENT] Could not load the file as texture! ABORT!";
 						espp.status = _esp32_communication::package_status::NON_CONNECTED;
+						auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
 						client.close_socket();
 						return;
 					}
@@ -249,14 +293,26 @@ bool CoreWorker::start_esp32_threads()
 					cout << console::color::AQUA << "[CLIENT] Working on image...";
 
 					// do analysis
-									
-					shrd.background_color = process_image(*txtur, shrd.conf);
+					//shrd.is_tasking_image = true;
+					//shrd.background_color = process_image(*txtur, shrd.conf);
+					//shrd.is_tasking_image = false;
 
-					shrd.latest_esp32_texture.replace_shared(std::move(txtur.reset_shared()));
+					shrd.latest_esp32_texture.replace_shared(std::move(txtur->duplicate())); // gonna be translated to VIDEO_BITMAP
+					shrd.latest_esp32_texture_orig.replace_shared(std::move(txtur.reset_shared())); // this is MEMORY_BITMAP
 					shrd.latest_esp32_file.replace_shared(std::move(espp.package_combine_file.reset_shared()));
+
+					auto_handle_process_image(false); // has to wait
+
+					auto_update_wifi_icon(textures_enum::WIFI_COMMAND);
+
+					// do something
+					build_pc_good_or_bad(&spkg, shrd.good_perc >= shrd.bad_perc ? 1 : 0);
+					espp.packages_to_send.push_back(std::move(spkg));
+					std::this_thread::sleep_for(std::chrono::milliseconds(60));
 				}
 
 				espp.status = pkg.left > 0 ? _esp32_communication::package_status::PROCESSING_IMAGE : _esp32_communication::package_status::IDLE;
+				auto_update_wifi_icon(pkg.left > 0 ? textures_enum::WIFI_TRANSFER : textures_enum::WIFI_IDLE);
 			}
 			break;
 			case PKG_ESP_WEIGHT_INFO:
@@ -265,10 +321,12 @@ bool CoreWorker::start_esp32_threads()
 				cout << console::color::AQUA << "[CLIENT] Good: " << pkg.data.esp.weight_info.good_side_kg << " kg";
 				cout << console::color::AQUA << "[CLIENT] Bad:  " << pkg.data.esp.weight_info.bad_side_kg << " kg";
 				espp.status = _esp32_communication::package_status::IDLE;
+				auto_update_wifi_icon(textures_enum::WIFI_IDLE);
 			}
 			break;
 			default:
 				espp.status = _esp32_communication::package_status::IDLE;
+				auto_update_wifi_icon(textures_enum::WIFI_IDLE);
 #ifdef CONNECTION_VERBOSE
 				cout << console::color::DARK_PURPLE << "ESP32 NO DATA";
 #endif
@@ -292,9 +350,9 @@ bool CoreWorker::full_load()
 		.set_display_mode(
 			display_options()
 			.set_width(800)
-			.set_height(600)
+			.set_height(800)
 		)
-		.set_extra_flags(ALLEGRO_RESIZABLE | ALLEGRO_OPENGL/* | ALLEGRO_NOFRAME*/)
+		.set_extra_flags(/*ALLEGRO_RESIZABLE |*/ ALLEGRO_OPENGL/* | ALLEGRO_NOFRAME*/)
 		.set_window_title(get_app_name())
 		.set_fullscreen(false)
 		//.set_vsync(true)
@@ -309,6 +367,9 @@ bool CoreWorker::full_load()
 
 	hook_display_load();
 	post_progress_val(0.01f);
+
+	cout << console::color::DARK_GRAY << "Initializing assist thread...";
+	shrd.async_queue.task_async([&] {shrd.__async_queue(); });
 
 	cout << console::color::DARK_GRAY << "Setting up window icon...";
 
@@ -327,6 +388,11 @@ bool CoreWorker::full_load()
 	shrd.conf.ensure("processing", "saturation_compensation", 0.45, config::config_section_mode::SAVE);// how much sat compensation
 	shrd.conf.ensure("processing", "brightness_compensation", 0.10, config::config_section_mode::SAVE);// how much compensation to bright (up to +10%)
 	shrd.conf.ensure("processing", "overflow_boost", 1.05, config::config_section_mode::SAVE);// 1.0f = no overflow, less = less brightness and color
+	shrd.conf.ensure("processing", "area_center_x", 0.3f, config::config_section_mode::SAVE);// width of the center to consider
+	shrd.conf.ensure("processing", "area_center_y", 0.3f, config::config_section_mode::SAVE);// height of the center to consider
+	shrd.conf.ensure("processing", "center_weight", 9, config::config_section_mode::SAVE);// average weight of the center. More = more times considered
+	shrd.conf.ensure("reference", "good_plant", { (231.0f / 255.0f),(135.0f / 255.0f), (65.0f / 255.0f) }, config::config_section_mode::SAVE);
+	shrd.conf.ensure("reference", "bad_plant", { (19.0f / 255.0f),(140.0f / 255.0f), (74.0f / 255.0f) }, config::config_section_mode::SAVE);
 
 	if (!shrd.conf.flush()) {
 		cout << console::color::DARK_RED << "Failed saving config at least once!";
@@ -334,6 +400,9 @@ bool CoreWorker::full_load()
 		return false;
 	}
 	shrd.conf.auto_save(true);
+
+	shrd.good_plant = config_to_color(shrd.conf, "reference", "good_plant");
+	shrd.bad_plant = config_to_color(shrd.conf, "reference", "bad_plant");
 
 	cout << console::color::DARK_GRAY << "Preparing event handlers...";
 
@@ -381,7 +450,7 @@ bool CoreWorker::full_load()
 	cout << console::color::DARK_GRAY << "Linking atlas resource...";
 
 	dspy.src_atlas = make_hybrid<texture>();
-	if (!dspy.src_atlas->load(shrd.file_atlas)) {
+	if (!dspy.src_atlas->load(texture_config().set_file(shrd.file_atlas).set_flags(ALLEGRO_MAG_LINEAR|ALLEGRO_MIN_LINEAR))) {
 		cout << console::color::DARK_RED << "Failed linking atlas resource.";
 		full_close("Can't link atlas png resource!");
 		return false;
@@ -390,11 +459,18 @@ bool CoreWorker::full_load()
 
 	cout << console::color::DARK_GRAY << "Creating sub-bitmaps...";
 
-	shrd.texture_map[textures_enum::LOADING]			= make_hybrid<texture>(dspy.src_atlas->create_sub(0, 0, 200, 200));
+	shrd.texture_map[textures_enum::MOUSE_LOADING]		= make_hybrid<texture>(dspy.src_atlas->create_sub(0, 0, 200, 200));
 	//shrd.texture_map["closex"]						= make_hybrid<texture>(dspy.src_atlas->create_sub(200, 0, 150, 150));
 	shrd.texture_map[textures_enum::MOUSE]				= make_hybrid<texture>(dspy.src_atlas->create_sub(0, 200, 200, 200));
 	shrd.texture_map[textures_enum::BUTTON_UP]			= make_hybrid<texture>(dspy.src_atlas->create_sub(350, 0, 600, 90));
 	shrd.texture_map[textures_enum::BUTTON_DOWN]		= make_hybrid<texture>(dspy.src_atlas->create_sub(350, 90, 600, 90));
+
+	shrd.texture_map[textures_enum::WIFI_SEARCHING]		= make_hybrid<texture>(dspy.src_atlas->create_sub(350, 180, 100, 100));
+	shrd.texture_map[textures_enum::WIFI_IDLE]			= make_hybrid<texture>(dspy.src_atlas->create_sub(450, 180, 100, 100));
+	shrd.texture_map[textures_enum::WIFI_TRANSFER]		= make_hybrid<texture>(dspy.src_atlas->create_sub(550, 180, 100, 100));
+	shrd.texture_map[textures_enum::WIFI_THINKING]		= make_hybrid<texture>(dspy.src_atlas->create_sub(650, 180, 100, 100));
+	shrd.texture_map[textures_enum::WIFI_COMMAND]		= make_hybrid<texture>(dspy.src_atlas->create_sub(750, 180, 100, 100));
+	
 	shrd.latest_esp32_texture = make_hybrid<texture>(); // just so it gets replaced later
 	//shrd.latest_esp32_texture->create(800, 600);
 
@@ -418,21 +494,34 @@ bool CoreWorker::full_load()
 
 		cout << console::color::DARK_GRAY << "Building global sprites...";
 		{
-			shrd.mouse_pair.set_func([&](sprite* raw, const sprite_pair::cond& con) {
-				block* bl = (block*)raw;
-				bl->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, get_is_loading() ? 1 : 0);
-				bl->set<float>(enum_sprite_float_e::ROTATION, get_is_loading() ? static_cast<float>(std::fmod(al_get_time(), ALLEGRO_PI * 2.0)) : 0.0f);
-			});
 			blk = (block*)shrd.mouse_pair.get_sprite();
-
 			blk->texture_insert(shrd.texture_map[textures_enum::MOUSE]);
-			blk->texture_insert(shrd.texture_map[textures_enum::LOADING]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.07f);
+			blk->texture_insert(shrd.texture_map[textures_enum::MOUSE_LOADING]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
 			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 4.0f);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.mouse_pair.set_tick([&](sprite* raw) {
+				block* bl = (block*)raw;
+				bl->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, get_is_loading() ? 1 : 0);
+				bl->set<float>(enum_sprite_float_e::ROTATION, get_is_loading() ? static_cast<float>(std::fmod(al_get_time(), ALLEGRO_PI * 2.0)) : 0.0f);
+			});
+
+						
+			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_SEARCHING]);
+			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_IDLE]);
+			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_TRANSFER]);
+			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_THINKING]);
+			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_COMMAND]);
+			shrd.wifi_blk.set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_X, 0.85f);
+			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.85f);
+			shrd.wifi_blk.set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//shrd.wifi_blk.set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 4.0f);
+			//shrd.wifi_blk.set<bool>(enum_sprite_boolean_e::DRAW_TRANSFORM_COORDS_KEEP_SCALE, true);
+			shrd.wifi_blk.set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
 		}
 		post_progress_val(0.80f);
 
@@ -441,13 +530,23 @@ bool CoreWorker::full_load()
 			shrd.screen_set[stage_enum::HOME].min_y = 0.0f;
 			shrd.screen_set[stage_enum::HOME].max_y = 0.0f;
 
+			// Darken everything
+			make_blk();
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 2.0f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.1f, 0.1f, 0.1f, 0.6f));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
+			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
+
 			// Testing zone text home
 			make_txt();
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.25f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, -0.7f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, -0.6f);
 			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Auto Smoke Selector"));
@@ -459,9 +558,9 @@ bool CoreWorker::full_load()
 			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
 			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.4f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 2.97f);
+			blk->set<float>(enum_sprite_float_e::POS_X, -0.37f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.2f);
 			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 25));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
@@ -477,11 +576,128 @@ bool CoreWorker::full_load()
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, 0.33f);
+			txt->set<float>(enum_sprite_float_e::POS_X, -0.37f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, 0.13f);
 			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Check & Settings"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Setup"));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
+
+			// Only preview button
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 2.97f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.37f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.2f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 25));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::HOME].push_back({
+				std::move(each),
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { 
+					shrd.screen = stage_enum::PREVIEW; } }
+			});
+			// Only preview text
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.37f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, 0.13f);
+			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Preview"));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
+
+			// Import image
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.5f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 200));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::HOME].push_back({
+				std::move(each),
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) {
+					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
+					if (down.is_unclick && down.is_mouse_on_it) { 
+						async_task([&] {
+							cout << console::color::AQUA << "[FILECHOOSER] Asking for file...";
+
+							auto dialog = std::unique_ptr<ALLEGRO_FILECHOOSER, void(*)(ALLEGRO_FILECHOOSER*)>(
+								al_create_native_file_dialog(
+									nullptr,
+									"Choose one image file!",
+									"*.jpg;*.png;*.bmp;*.jpeg",
+									ALLEGRO_FILECHOOSER_FILE_MUST_EXIST | ALLEGRO_FILECHOOSER_PICTURES
+								), al_destroy_native_file_dialog);
+
+							bool got_something = al_show_native_file_dialog(nullptr, dialog.get());
+							int amount_of_items_selected = got_something ? al_get_native_file_dialog_count(dialog.get()) : 0; // must be 1 or bigger.
+
+							cout << console::color::AQUA << "[FILECHOOSER] File check: HAS? " << (got_something ? "TRUE" : "FALSE") << " SIZE=" << amount_of_items_selected;
+
+							if (got_something && amount_of_items_selected > 0) {
+								std::string path = al_get_native_file_dialog_path(dialog.get(), 0);
+								cout << console::color::AQUA << "[FILECHOOSER] Managing path...";
+
+								auto fpp = make_hybrid<file>();
+								auto txtur = make_hybrid<texture>();
+
+								if (!fpp->open(path.c_str(), file::open_mode_e::READ_TRY)) {
+									al_show_native_message_box(nullptr, "Failed", "Failed opening file.", ("I could not open '" + path + "'. Sorry!").c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+									return;
+								}
+
+								bool gud = txtur->load(fpp);
+
+								if (!gud) {
+									al_show_native_message_box(nullptr, "Failed", "Failed opening file.", ("I could not load '" + path + "' as an image. Sorry!").c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+									return;
+								}
+
+								cout << console::color::AQUA << "[FILECHOOSER] Processing image...";
+
+								shrd.latest_esp32_texture.replace_shared(std::move(txtur->duplicate())); // gonna be translated to VIDEO_BITMAP
+								shrd.latest_esp32_texture_orig.replace_shared(std::move(txtur.reset_shared())); // this is MEMORY_BITMAP
+								shrd.latest_esp32_file.replace_shared(std::move(fpp.reset_shared()));
+
+								auto_handle_process_image(false);
+
+								cout << console::color::AQUA << "[FILECHOOSER] Done.";
+
+								shrd.screen = stage_enum::CONFIG;
+							}
+							else if (got_something && amount_of_items_selected == 0) {
+								cout << console::color::AQUA << "[FILECHOOSER] Showing error expected file but list is empty.";
+								al_show_native_message_box(nullptr, "Failed", "Failed opening file.", "I didn't get any files! This looks like a bug to me.", nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+							}
+							cout << console::color::AQUA << "[FILECHOOSER] Ended.";
+						});
+					} }
+			});
+			// Import image text
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, 0.43f);
+			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Open custom..."));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
 
@@ -521,7 +737,7 @@ bool CoreWorker::full_load()
 		cout << console::color::DARK_GRAY << "Building CONFIG sprites...";
 		{
 			shrd.screen_set[stage_enum::CONFIG].min_y = 0.0f;
-			shrd.screen_set[stage_enum::CONFIG].max_y = 0.6f; 
+			shrd.screen_set[stage_enum::CONFIG].max_y = 1.2f;
 
 			// Image rendering
 			make_blk();
@@ -529,9 +745,9 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.5f);
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.05f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, -0.15f);
 			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(0.1f, 0.1f, 0.1f, 0.05f));
+			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
 
@@ -542,7 +758,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, -0.8f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, -0.85f);
 			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 25, 25));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
@@ -551,19 +767,118 @@ bool CoreWorker::full_load()
 				std::move(each),
 				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } }
-			});
+				});
 			// Go Home text
 			make_txt();
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, -0.87f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, -0.92f);
 			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Back"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+
+			// Set bad button
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.13f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.0f);
+			blk->set<float>(enum_sprite_float_e::POS_X, -0.45f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.50f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "bad_plant"));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) {
+					s->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "bad_plant"));
+					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
+					if (down.is_unclick && down.is_mouse_on_it) {
+						color_to_config(shrd.conf, "reference", "bad_plant", shrd.background_color);
+						shrd.bad_plant = shrd.background_color;
+						shrd.bad_perc = how_far(shrd.bad_plant, shrd.background_color);
+						shrd.good_perc = how_far(shrd.good_plant, shrd.background_color);
+					}
+				}
+				});
+			// Set bad text
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, -0.45f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, 0.465f);
+			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Set this as \"BAD\" color"));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+
+			// Set good button
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.13f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.0f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.45f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.50f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "good_plant"));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[&](sprite* s) {},
+				[&](sprite* s, const sprite_pair::cond& down) {
+					s->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "good_plant"));
+					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
+					if (down.is_unclick && down.is_mouse_on_it) {
+						color_to_config(shrd.conf, "reference", "good_plant", shrd.background_color);
+						shrd.bad_plant = shrd.background_color;
+						shrd.bad_perc = how_far(shrd.bad_plant, shrd.background_color);
+						shrd.good_perc = how_far(shrd.good_plant, shrd.background_color);
+					}
+				}
+				});
+			// Set good text
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.45f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, 0.465f);
+			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Set this as \"GOOD\" color"));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+
+
+			// Resume of percentage bad/good
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, -0.65f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Thinking..."));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			txt->shadow_insert(text_shadow{ 0.005f, 0.080f, color(0,0,0) });
+
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% good / " + std::to_string(shrd.bad_perc * 100.0f) + "% bad"); },
+				[](auto,auto) {}
+				});
+
 
 			float offauto = 0.8f;
 
@@ -604,16 +919,19 @@ bool CoreWorker::full_load()
 						0.4f));
 				},
 				[&](sprite* s, const sprite_pair::cond& down) {
-					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it&& down.is_mouse_pressed) ? 1 : 0);
+					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
 					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
 						shrd.conf.set("processing", "saturation_compensation", (down.cpy.real_posx + 0.7f) / 1.4f);
 					}
 					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty())
-							dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
+							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
+							auto_handle_process_image();
+						}
 					}
 				}
-			});
+				});
 
 			make_txt();
 			txt->font_set(dspy.src_font);
@@ -632,7 +950,7 @@ bool CoreWorker::full_load()
 						"Saturation: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "saturation_compensation")) * 100.0f)) + "% boost"
 					));
 				},
-				[&](auto, auto) {}});
+				[&](auto, auto) {} });
 
 			offauto += 0.22f;
 			// ================ BRIGHTNESS BAR
@@ -678,11 +996,14 @@ bool CoreWorker::full_load()
 						shrd.conf.set("processing", "brightness_compensation", 0.5f * (down.cpy.real_posx + 0.7f) / 1.4f);
 					}
 					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty())
-							dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
+							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
+							auto_handle_process_image();
+						}
 					}
 				}
-			});
+				});
 
 			make_txt();
 			txt->font_set(dspy.src_font);
@@ -701,7 +1022,7 @@ bool CoreWorker::full_load()
 						"Brightness: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "brightness_compensation")) * 100.0f)) + "% boost"
 					));
 				},
-				[&](auto, auto) {}});
+				[&](auto, auto) {} });
 
 			offauto += 0.22f;
 			// ================ OVERFLOW BAR
@@ -735,23 +1056,27 @@ bool CoreWorker::full_load()
 			shrd.casted_boys[stage_enum::CONFIG].push_back({
 				std::move(each),
 				[&](sprite* s) {
-					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + (((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 2.0f) * 1.4f));
+					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + ((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 1.4f));
 					s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
-						0.4f - 0.4f * ((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 2.0f),
-						0.7f + 0.3f * ((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 2.0f),
-						0.4f - 0.4f * ((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 2.0f)));
+						0.4f - 0.4f * (shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f),
+						0.7f + 0.3f * (shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f),
+						0.4f - 0.4f * (shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f)
+					));
 				},
 				[&](sprite* s, const sprite_pair::cond& down) {
 					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
 					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
-						shrd.conf.set("processing", "overflow_boost", 1.0f + ((down.cpy.real_posx + 0.7f) / 1.4f) * 0.5f);
+						shrd.conf.set("processing", "overflow_boost", 1.0f + (down.cpy.real_posx + 0.7f) / 1.4f);
 					}
 					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty())
-							dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
+							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
+							auto_handle_process_image();
+						}
 					}
 				}
-			});
+				});
 
 			make_txt();
 			txt->font_set(dspy.src_font);
@@ -770,7 +1095,306 @@ bool CoreWorker::full_load()
 						"Gain: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 100.0f)) + "%"
 					));
 				},
-				[&](auto, auto) {}});
+				[&](auto, auto) {} });
+
+			offauto += 0.22f;
+			// ================ CENTER WEIGHT BAR
+			// First bar config
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.22f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 7.3f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+
+			// First bar config slider
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 1.0f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[&](sprite* s) {
+					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + (((shrd.conf.get_as<float>("processing", "center_weight") - 1.0f) / 29.0f) * 1.4f));
+					s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+						0.6f + 0.4f * ((shrd.conf.get_as<float>("processing", "center_weight") - 1.0f) / 29.0f),
+						0.6f,
+						0.6f + 0.4f * ((shrd.conf.get_as<float>("processing", "center_weight") - 1.0f) / 29.0f)
+					));
+				},
+				[&](sprite* s, const sprite_pair::cond& down) {
+					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
+					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
+						shrd.conf.set("processing", "center_weight", static_cast<int>(1.1f + 29.0f * (down.cpy.real_posx + 0.7f) / 1.4f));
+					}
+					if (down.is_unclick && down.is_mouse_on_it) {
+						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
+							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
+							auto_handle_process_image();
+						}
+					}
+				}
+				});
+
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
+			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Center weight: x1"));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[&](sprite* s) {
+					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
+						"Center weight: x" + std::to_string((int)(shrd.conf.get_as<float>("processing", "center_weight")))
+					));
+				},
+				[&](auto, auto) {} });
+
+			offauto += 0.22f;
+			// ================ X AXIS BAR
+			// First bar config
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.22f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 7.3f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+
+			// First bar config slider
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 1.0f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[&](sprite* s) {
+					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + (((shrd.conf.get_as<float>("processing", "area_center_x") - 0.1f) / 0.9f) * 1.4f));
+					s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+						0.6f + 0.4f * (shrd.conf.get_as<float>("processing", "area_center_x") - 1.0f),
+						0.6f + 0.4f * (shrd.conf.get_as<float>("processing", "area_center_x") - 1.0f),
+						0.6f + 0.4f * (shrd.conf.get_as<float>("processing", "area_center_x") - 1.0f)
+					));
+				},
+				[&](sprite* s, const sprite_pair::cond& down) {
+					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
+					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
+						shrd.conf.set("processing", "area_center_x", 0.1f + 0.9f * (down.cpy.real_posx + 0.7f) / 1.4f);
+					}
+					if (down.is_unclick && down.is_mouse_on_it) {
+						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
+							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
+							auto_handle_process_image();
+						}
+					}
+				}
+				});
+
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
+			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Center width: 00%"));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[&](sprite* s) {
+					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
+						"Center width: " + std::to_string((int)(shrd.conf.get_as<float>("processing", "area_center_x") * 100.0f)) + "%"
+					));
+				},
+				[&](auto, auto) {} });
+
+			offauto += 0.22f;
+			// ================ Y AXIS BAR
+			// First bar config
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.22f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 7.3f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+
+			// First bar config slider
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 1.0f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[&](sprite* s) {
+					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + (((shrd.conf.get_as<float>("processing", "area_center_y") - 0.1f) / 0.9f) * 1.4f));
+					s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+						0.6f + 0.4f * (shrd.conf.get_as<float>("processing", "area_center_y") - 1.0f),
+						0.6f + 0.4f * (shrd.conf.get_as<float>("processing", "area_center_y") - 1.0f),
+						0.6f + 0.4f * (shrd.conf.get_as<float>("processing", "area_center_y") - 1.0f)
+					));
+				},
+				[&](sprite* s, const sprite_pair::cond& down) {
+					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
+					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
+						shrd.conf.set("processing", "area_center_y", 0.1f + 0.9f * (down.cpy.real_posx + 0.7f) / 1.4f);
+					}
+					if (down.is_unclick && down.is_mouse_on_it) {
+						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
+							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
+							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
+							auto_handle_process_image();
+						}
+					}
+				}
+				});
+
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
+			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Center height: 00%"));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			shrd.casted_boys[stage_enum::CONFIG].push_back({
+				std::move(each),
+				[&](sprite* s) {
+					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
+						"Center height: " + std::to_string((int)(shrd.conf.get_as<float>("processing", "area_center_y") * 100.0f)) + "%"
+					));
+				},
+				[&](auto, auto) {} });
+		}
+		post_progress_val(0.875f);
+
+		cout << console::color::DARK_GRAY << "Building PREVIEW sprites...";
+		{
+			shrd.screen_set[stage_enum::PREVIEW].min_y = 0.0f;
+			shrd.screen_set[stage_enum::PREVIEW].max_y = 0.0f;
+
+			// Darken everything
+			make_blk();
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 2.0f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.1f, 0.1f, 0.1f, 0.6f));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
+			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
+
+			// Image rendering
+			make_blk();
+			blk->texture_insert(shrd.latest_esp32_texture);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.8f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.05f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
+			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
+
+			// Go Home button
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, -0.8f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 25, 25));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[stage_enum::PREVIEW].push_back({
+				std::move(each),
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } }
+			});
+			// Go Home text
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, -0.87f);
+			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Back"));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
+
+
+
+			// Resume of percentage bad/good
+			make_txt();
+			txt->font_set(dspy.src_font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
+			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, 0.73f);
+			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Thinking..."));
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			txt->shadow_insert(text_shadow{ 0.005f, 0.080f, color(0,0,0) });
+
+			shrd.casted_boys[stage_enum::PREVIEW].push_back({
+				std::move(each),
+				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% good / " + std::to_string(shrd.bad_perc * 100.0f) + "% bad\nConsidered good? " + (shrd.good_perc >= shrd.bad_perc ? "YES" : "NO")); },
+				[](auto,auto) {}
+			});
 		}
 		post_progress_val(0.90f);
 	}
@@ -796,10 +1420,11 @@ void CoreWorker::post_progress_val(const float v)
 
 void CoreWorker::_post_update_display()
 {
-	dspy.disp.add_run_once_in_drawing_thread([offy = shrd.current_offy] {
+	dspy.disp.add_run_once_in_drawing_thread([&] {
 		transform transf;
 		transf.build_classic_fixed_proportion_auto(1.0f);
-		transf.translate_inverse(0.0f, offy);
+		transf.translate_inverse(0.0f, shrd.current_offy);
+		shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.85f + shrd.current_offy);
 		transf.apply();
 	});
 }
@@ -925,6 +1550,8 @@ void CoreWorker::full_close(const std::string& warnstr)
 	post_progress_val(0.00f);
 	hook_display_load(); // no resources used here
 
+	shrd.async_queue.signal_stop();
+
 	// _esp32_communication
 	cout << console::color::YELLOW << "- ESP32 COMMUNICATION -";
 
@@ -959,6 +1586,8 @@ void CoreWorker::full_close(const std::string& warnstr)
 	shrd.get_file_atlas()->close();
 	shrd.file_font.reset_this();
 	shrd.file_atlas.reset_this();
+	shrd.async_queue.join();
+	shrd.task_queue.clear(); // drop
 
 	post_progress_val(0.70f);
 

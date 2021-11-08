@@ -47,16 +47,17 @@ sprite_pair_screen_vector get_default_sprite_map()
 	return mapp;
 }
 
-color process_image(texture& txtur2, const config& conf)
+color process_image(texture& txtur, const config& conf)
 {
-	if (txtur2.empty()) return color(16, 16, 16); // clean almost black error-like color
-
-	const auto __backpu = al_get_new_bitmap_flags();
-	al_set_new_bitmap_flags(ALLEGRO_MEMORY_BITMAP);
-	texture txtur = txtur2.duplicate();
-	al_set_new_bitmap_flags(__backpu);	
-
 	if (txtur.empty()) return color(16, 16, 16); // clean almost black error-like color
+	if ((txtur.get_flags() & ALLEGRO_MEMORY_BITMAP) == 0) return color(16, 16, 16); // must be memory bitmap
+
+	//const auto __backpu = al_get_new_bitmap_flags();
+	//al_set_new_bitmap_flags(ALLEGRO_MEMORY_BITMAP);
+	//texture txtur = txtur2.duplicate();
+	//al_set_new_bitmap_flags(__backpu);	
+
+	//if (txtur.empty()) return color(16, 16, 16); // clean almost black error-like color
 
 	ALLEGRO_LOCKED_REGION* region = al_lock_bitmap(txtur.get_raw_bitmap(), ALLEGRO_PIXEL_FORMAT_RGB_888, ALLEGRO_LOCK_READONLY);
 	if (!region) {
@@ -82,12 +83,13 @@ color process_image(texture& txtur2, const config& conf)
 
 		cout << console::color::AQUA << "[CLIENT] Processing image...";
 
-		const size_t min_x = 0.3 * txtur.get_width();
-		const size_t max_x = 0.7 * txtur.get_width();
-		const size_t min_y = 0.3 * txtur.get_height();
-		const size_t max_y = 0.7 * txtur.get_height();
+		const size_t min_x = (0.5 - 0.5 * limit_range_of(conf.get_as<double>("processing", "area_center_x"), 0.1, 1.0)) * txtur.get_width();
+		const size_t max_x = (0.5 + 0.5 * limit_range_of(conf.get_as<double>("processing", "area_center_x"), 0.1, 1.0)) * txtur.get_width();
+		const size_t min_y = (0.5 - 0.5 * limit_range_of(conf.get_as<double>("processing", "area_center_y"), 0.1, 1.0)) * txtur.get_height();
+		const size_t max_y = (0.5 + 0.5 * limit_range_of(conf.get_as<double>("processing", "area_center_y"), 0.1, 1.0)) * txtur.get_height();
+		const double center_weight = limit_range_of(conf.get_as<double>("processing", "center_weight"), 1.0, 50.0);
 
-		size_t amount = 0;
+		double amount = 0;
 		size_t amount_brightness = 0;
 
 		for (size_t y = 0; y < txtur.get_height(); y++) {
@@ -108,18 +110,18 @@ color process_image(texture& txtur2, const config& conf)
 					brightness_center += max_val; // static_cast<unsigned char>(0.5f * (max_val + min_val));
 
 
-					red_depth += beg[y * pitch_width + x].r;
-					green_depth += beg[y * pitch_width + x].g;
-					blue_depth += beg[y * pitch_width + x].b;
+					red_depth   += center_weight * beg[y * pitch_width + x].r;
+					green_depth += center_weight * beg[y * pitch_width + x].g;
+					blue_depth  += center_weight * beg[y * pitch_width + x].b;
 
 					++amount_brightness;
-					++amount;
+					amount += center_weight;
 				}
-				else if ((x % 3) == 0 && (y % 3) == 0) { // per 9 do 1
-					red_depth += beg[y * pitch_width + x].r;
+				else {// if ((x % 3) == 0 && (y % 3) == 0) { // per 9 do 1
+					red_depth   += beg[y * pitch_width + x].r;
 					green_depth += beg[y * pitch_width + x].g;
-					blue_depth += beg[y * pitch_width + x].b;
-					++amount;
+					blue_depth  += beg[y * pitch_width + x].b;
+					amount += 1.0; // just to be sure no conversion is being made, idk
 				}
 
 			}
@@ -128,9 +130,9 @@ color process_image(texture& txtur2, const config& conf)
 		brightness_center /= amount_brightness;
 
 		float resred = 0.0f, resgreen = 0.0f, resblue = 0.0f;
-		const double propp			= conf.get_as<double>("processing", "saturation_compensation");		// how much sat compensation (default: 0.45)
-		const double corr_to_high	= conf.get_as<double>("processing", "brightness_compensation");		// how much compensation to bright (default: 0.10 (10% increase))
-		const double overflow_corr  = conf.get_as<double>("processing", "overflow_boost");				// 1.0f = no overflow, less = less brightness and color (default: 1.05)
+		const double propp			= limit_range_of(conf.get_as<double>("processing", "saturation_compensation"), 0.0, 1.0);		// how much sat compensation (default: 0.45)
+		const double corr_to_high	= limit_range_of(conf.get_as<double>("processing", "brightness_compensation"), 0.0, 1.0);		// how much compensation to bright (default: 0.10 (10% increase))
+		const double overflow_corr  = limit_range_of(conf.get_as<double>("processing", "overflow_boost"), 1.0, 2.0);				// 1.0f = no overflow, less = less brightness and color (default: 1.05)
 
 		{
 			auto lesser = red_depth;
@@ -166,4 +168,23 @@ color process_image(texture& txtur2, const config& conf)
 	}
 
 	return color(16, 16, 16); // should never go here lol
+}
+
+color config_to_color(const config& c, const std::string& a, const std::string& b)
+{
+	auto arr = c.get_array<float>(a, b);
+	if (arr.size() == 3) {
+		return color(arr[0], arr[1], arr[2]);
+	}
+	return color(0, 0, 0);
+}
+
+void color_to_config(config& c, const std::string& a, const std::string& b, const color& clr)
+{
+	c.set(a, b, std::vector<float>{ clr.r, clr.g, clr.b });
+}
+
+float how_far(const color& a, const color& b)
+{
+	return 1.0f - static_cast<float>(pow(fabs((static_cast<double>(a.r - b.r)) * (static_cast<double>(a.g - b.g)) * (static_cast<double>(a.b - b.b))), 0.05));
 }
