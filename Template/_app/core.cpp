@@ -500,7 +500,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 4.0f);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
 			shrd.mouse_pair.set_tick([&](sprite* raw) {
@@ -518,9 +518,9 @@ bool CoreWorker::full_load()
 			shrd.wifi_blk.set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
 			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_X, 0.85f);
 			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.85f);
-			shrd.wifi_blk.set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//shrd.wifi_blk.set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			//shrd.wifi_blk.set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 4.0f);
-			//shrd.wifi_blk.set<bool>(enum_sprite_boolean_e::DRAW_TRANSFORM_COORDS_KEEP_SCALE, true);
+			shrd.wifi_blk.set<bool>(enum_sprite_boolean_e::DRAW_TRANSFORM_COORDS_KEEP_SCALE, true);
 			shrd.wifi_blk.set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
 		}
 		post_progress_val(0.80f);
@@ -535,7 +535,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 2.0f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.1f, 0.1f, 0.1f, 0.6f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
 			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
@@ -547,7 +547,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, -0.6f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Auto Smoke Selector"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
@@ -561,7 +561,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 2.97f);
 			blk->set<float>(enum_sprite_float_e::POS_X, -0.37f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.2f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 25));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -578,9 +578,9 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, -0.37f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, 0.13f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Setup"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Config"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
 
@@ -592,7 +592,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 2.97f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.37f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.2f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 25));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -609,7 +609,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.37f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, 0.13f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Preview"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
@@ -623,7 +623,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.5f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -639,7 +639,7 @@ bool CoreWorker::full_load()
 							auto dialog = std::unique_ptr<ALLEGRO_FILECHOOSER, void(*)(ALLEGRO_FILECHOOSER*)>(
 								al_create_native_file_dialog(
 									nullptr,
-									"Choose one image file!",
+									"Escolha uma imagem!",
 									"*.jpg;*.png;*.bmp;*.jpeg",
 									ALLEGRO_FILECHOOSER_FILE_MUST_EXIST | ALLEGRO_FILECHOOSER_PICTURES
 								), al_destroy_native_file_dialog);
@@ -695,9 +695,9 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, 0.43f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Open custom..."));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Abrir..."));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
 
@@ -709,7 +709,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.8f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(45, 45, 65));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -725,9 +725,9 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, 0.73f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Exit"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Sair"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
 
@@ -746,7 +746,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, -0.15f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
@@ -759,7 +759,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, -0.85f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 25, 25));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -775,9 +775,9 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, -0.92f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Back"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Voltar"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
 
@@ -789,7 +789,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.0f);
 			blk->set<float>(enum_sprite_float_e::POS_X, -0.45f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.50f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "bad_plant"));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -814,9 +814,9 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, -0.45f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, 0.465f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Set this as \"BAD\" color"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Definir isto como \"RUIM\""));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
 
@@ -828,7 +828,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.0f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.45f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.50f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "good_plant"));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -853,9 +853,9 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.45f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, 0.465f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Set this as \"GOOD\" color"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Definir isto como \"BOM\""));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
 
@@ -867,15 +867,15 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, -0.65f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Thinking..."));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Pensando..."));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			txt->shadow_insert(text_shadow{ 0.005f, 0.080f, color(0,0,0) });
 
 			shrd.casted_boys[stage_enum::CONFIG].push_back({
 				std::move(each),
-				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% good / " + std::to_string(shrd.bad_perc * 100.0f) + "% bad"); },
+				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"NÃO")); },
 				[](auto,auto) {}
 				});
 
@@ -891,7 +891,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -905,7 +905,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -939,15 +939,15 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Saturation: +00% boost"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(u8"Saturação: +00% boost"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
-						"Saturation: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "saturation_compensation")) * 100.0f)) + "% boost"
+						u8"Saturação: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "saturation_compensation")) * 100.0f)) + "% boost"
 					));
 				},
 				[&](auto, auto) {} });
@@ -962,7 +962,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -977,7 +977,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1011,15 +1011,15 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Brightness: +00% boost"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Brilho: +00% boost"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
-						"Brightness: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "brightness_compensation")) * 100.0f)) + "% boost"
+						"Brilho: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "brightness_compensation")) * 100.0f)) + "% boost"
 					));
 				},
 				[&](auto, auto) {} });
@@ -1034,7 +1034,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1049,7 +1049,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1084,15 +1084,15 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Gain: +00%"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Ganho: +00%"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
-						"Gain: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 100.0f)) + "%"
+						"Ganho: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 100.0f)) + "%"
 					));
 				},
 				[&](auto, auto) {} });
@@ -1107,7 +1107,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1122,7 +1122,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1157,15 +1157,15 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Center weight: x1"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Peso central: x1"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
-						"Center weight: x" + std::to_string((int)(shrd.conf.get_as<float>("processing", "center_weight")))
+						"Peso central: x" + std::to_string((int)(shrd.conf.get_as<float>("processing", "center_weight")))
 					));
 				},
 				[&](auto, auto) {} });
@@ -1180,7 +1180,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1195,7 +1195,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1230,15 +1230,15 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Center width: 00%"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Largura do centro: 00%"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
-						"Center width: " + std::to_string((int)(shrd.conf.get_as<float>("processing", "area_center_x") * 100.0f)) + "%"
+						"Largura do centro: " + std::to_string((int)(shrd.conf.get_as<float>("processing", "area_center_x") * 100.0f)) + "%"
 					));
 				},
 				[&](auto, auto) {} });
@@ -1253,7 +1253,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1268,7 +1268,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1303,15 +1303,15 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Center height: 00%"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Altura do centro: 00%"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::CONFIG].push_back({
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
-						"Center height: " + std::to_string((int)(shrd.conf.get_as<float>("processing", "area_center_y") * 100.0f)) + "%"
+						"Altura do centro: " + std::to_string((int)(shrd.conf.get_as<float>("processing", "area_center_y") * 100.0f)) + "%"
 					));
 				},
 				[&](auto, auto) {} });
@@ -1328,7 +1328,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 2.0f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.1f, 0.1f, 0.1f, 0.6f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
 			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
@@ -1340,7 +1340,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, 0.05f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
 			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
@@ -1353,7 +1353,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, -0.8f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 25, 25));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
@@ -1369,9 +1369,9 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, -0.87f);
-			txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Back"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Voltar"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
 
@@ -1384,15 +1384,15 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, 0.73f);
-			blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Thinking..."));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Pensando..."));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			txt->shadow_insert(text_shadow{ 0.005f, 0.080f, color(0,0,0) });
 
 			shrd.casted_boys[stage_enum::PREVIEW].push_back({
 				std::move(each),
-				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% good / " + std::to_string(shrd.bad_perc * 100.0f) + "% bad\nConsidered good? " + (shrd.good_perc >= shrd.bad_perc ? "YES" : "NO")); },
+				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"NÃO")); },
 				[](auto,auto) {}
 			});
 		}
@@ -1424,7 +1424,7 @@ void CoreWorker::_post_update_display()
 		transform transf;
 		transf.build_classic_fixed_proportion_auto(1.0f);
 		transf.translate_inverse(0.0f, shrd.current_offy);
-		shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.85f + shrd.current_offy);
+		//shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.85f + shrd.current_offy);
 		transf.apply();
 	});
 }
