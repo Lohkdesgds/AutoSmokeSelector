@@ -10,7 +10,9 @@
 //#define CONNECTION_VERBOSE
 #define MYASST2(X, MSGGG) if (!(X)) {Lunaris::cout << Lunaris::console::color::RED << MSGGG; Lunaris::cout << Lunaris::console::color::RED << "AUTOMATIC ABORT BEGUN"; client.close_socket(); return; }
 
-const size_t max_async_queue_size = 3;
+const size_t common_async_queue_size = 0;
+const double anim_mouse_threshold = 1.5;
+const double ask_weight_in_time = 60.0; // every minute
 
 using namespace Lunaris;
 
@@ -45,15 +47,17 @@ class CoreWorker {
 
 		color bad_plant, good_plant;
 		float bad_perc = 0.0f, good_perc = 0.0f;
+		std::chrono::system_clock::time_point next_draw_wait = std::chrono::system_clock::now();
 
 		std::atomic_bool kill_all = false;
 		std::atomic_int kill_tries = 0;
 		float generic_progressbar = 0.0f;
+		double last_mouse_movement = 0.0;
 		std::atomic_bool progressbar_mode = false;
 
 		mouse mouse_work;
 		sprite_pair mouse_pair; // has block in it
-		block wifi_blk; // has block in it
+		sprite_pair wifi_blk; // has block in it
 
 		hybrid_memory<file> latest_esp32_file; // set after processing
 		hybrid_memory<texture> latest_esp32_texture; // set after processing
@@ -79,6 +83,10 @@ class CoreWorker {
 		thread commu; // this will keep the connection or keep searching for one (HANDLES: current, hosting, MUST KILL THEM ITSELF)
 		thread procc; // this thread will handle the packages async / rule the thing // DOES NOT KILL CONNECTION, UNLESS SOME KIND OF FAIL
 
+		float current_good = 0.0f, current_bad = 0.0f;
+
+		double ask_weight_when_time = 0.0; // ask kilograms in time THIS
+
 		struct host_stuff {
 			TCP_client current; // keep talking indefinitely
 			TCP_host hosting; // listen till 1. If current has socket, decline new connections
@@ -103,7 +111,7 @@ class CoreWorker {
 	bool get_is_loading();
 	void auto_handle_process_image(const bool = true);
 	// task, wait if number of tasks is bigger than
-	void async_task(std::function<void(void)>, const size_t = max_async_queue_size);
+	void async_task(std::function<void(void)>, const size_t = common_async_queue_size);
 	void auto_update_wifi_icon(const textures_enum);
 
 	void hook_display_load(); // simple bar, no resource needed

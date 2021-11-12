@@ -1,7 +1,7 @@
 ﻿#include "core.h"
 
 CoreWorker::_shared::_shared(std::function<ALLEGRO_TRANSFORM(void)> f)
-	: mouse_work(f), mouse_pair(make_hybrid_derived<sprite, block>())
+	: mouse_work(f), mouse_pair(make_hybrid_derived<sprite, block>()), wifi_blk(make_hybrid_derived<sprite, block>())
 {
 }
 
@@ -46,7 +46,7 @@ void CoreWorker::ensure_config_defaults()
 	shrd.conf.ensure("processing", "center_weight", 9, config::config_section_mode::SAVE);// average weight of the center. More = more times considered
 	shrd.conf.ensure("reference", "good_plant", { (231.0f / 255.0f),(135.0f / 255.0f), (65.0f / 255.0f) }, config::config_section_mode::SAVE);
 	shrd.conf.ensure("reference", "bad_plant", { (19.0f / 255.0f),(140.0f / 255.0f), (74.0f / 255.0f) }, config::config_section_mode::SAVE);
-	shrd.conf.ensure("filemanagement", "export_path", " ", config::config_section_mode::SAVE);
+	shrd.conf.ensure("filemanagement", "export_path", std::string("&"), config::config_section_mode::SAVE);
 	shrd.conf.ensure("filemanagement", "save_all", false, config::config_section_mode::SAVE);
 }
 
@@ -81,7 +81,7 @@ void CoreWorker::auto_update_wifi_icon(const textures_enum mod)
 	int corr = static_cast<int>(mod);
 	if (corr < static_cast<int>(textures_enum::__FIRST_WIFI) || corr > static_cast<int>(textures_enum::__LAST_WIFI)) return;
 	corr -= static_cast<int>(textures_enum::__FIRST_WIFI);
-	shrd.wifi_blk.set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, static_cast<size_t>(corr));
+	((block*)shrd.wifi_blk.get_notick())->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, static_cast<size_t>(corr));
 }
 
 void CoreWorker::hook_display_load()
@@ -91,7 +91,8 @@ void CoreWorker::hook_display_load()
 	al_init_primitives_addon();
 	dspy.disp.hook_draw_function([&](const display_async& self) {
 
-		const auto timm = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 3);
+		std::this_thread::sleep_until(shrd.next_draw_wait);
+		shrd.next_draw_wait = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 15);
 
 		const float min_x = self.get_width() * 0.2;
 		const float max_x = self.get_width() * 0.8;
@@ -122,8 +123,6 @@ void CoreWorker::hook_display_load()
 		int indices1[] = { 0, 1, 2, 3 };
 		al_draw_indexed_prim((void*)vf, nullptr, nullptr, indices1, 4, ALLEGRO_PRIM_TRIANGLE_FAN);
 		al_draw_indexed_prim((void*)v1, nullptr, nullptr, indices1, 4, ALLEGRO_PRIM_TRIANGLE_FAN);
-
-		std::this_thread::sleep_until(timm);
 	});	
 }
 
@@ -134,7 +133,8 @@ void CoreWorker::hook_display_default()
 	dspy.disp.hook_draw_function([&](const display_async& self) {
 
 		try {
-			const auto timm = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 3);
+			std::this_thread::sleep_until(shrd.next_draw_wait);
+			shrd.next_draw_wait = std::chrono::system_clock::now() + std::chrono::milliseconds((self.get_is_economy_mode_activated() || (al_get_time() - shrd.last_mouse_movement > anim_mouse_threshold)) ? 33 : 3);
 			
 			shrd.background_color.clear_to_this();
 
@@ -145,11 +145,9 @@ void CoreWorker::hook_display_default()
 			});
 
 			{
-				shrd.wifi_blk.draw();
+				shrd.wifi_blk.get_notick()->draw();
 				shrd.mouse_pair.get_notick()->draw();
 			}
-
-			std::this_thread::sleep_until(timm);
 		}
 		catch (const std::exception& e) {
 			cout << console::color::DARK_RED << "Exception @ drawing thread: " << e.what();
@@ -179,6 +177,7 @@ bool CoreWorker::start_esp32_threads()
 		}
 		if (!espp.con->current.has_socket() && espp.status != _esp32_communication::package_status::NON_CONNECTED) {
 			espp.status = _esp32_communication::package_status::NON_CONNECTED;
+			espp.ask_weight_when_time = al_get_time();
 			auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
 			cout << console::color::AQUA << "[CLIENT] Client disconnected.";
 		}
@@ -199,6 +198,14 @@ bool CoreWorker::start_esp32_threads()
 			// # SEND
 			// ############################################
 			esp_package pkg, spkg;
+
+			if (al_get_time() - espp.ask_weight_when_time > 0.0) {
+				espp.ask_weight_when_time = al_get_time() + ask_weight_in_time;
+				esp_package _tmp;
+				build_pc_request_weight(&_tmp);
+				espp.packages_to_send.push_back(std::move(_tmp));
+				cout << console::color::AQUA << "[CLIENT] Auto requesting weight.";
+			}
 
 			if (espp.packages_to_send.size()) {
 				espp.packages_to_send.safe([&](std::vector<esp_package>& vec) {spkg = vec.front(); vec.erase(vec.begin()); });
@@ -291,23 +298,6 @@ bool CoreWorker::start_esp32_threads()
 
 					espp.package_combine_file->seek(0, file::seek_mode_e::BEGIN);
 
-					if (shrd.conf.get_as<bool>("filemanagement", "save_all")) {
-						cout << console::color::AQUA << "[CLIENT] Saving file...";
-						const std::string path = shrd.conf.get("filemanagement", "export_path");
-
-						std::tm tm;
-						std::time_t tim;
-						_gmtime64_s(&tm, &tim);
-
-						char lul[64];
-						strftime(lul, 64, "%F-%H-%M-%S", &tm);
-						char decc[8];
-						sprintf_s(decc, "%04lld", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() % 1000);
-						std::string fullpath = path + "/" + lul + decc;
-
-						cout << "Would save at '" << fullpath << "'";
-					}
-
 					bool gud = false;
 
 					auto txtur = make_hybrid<texture>();
@@ -316,6 +306,7 @@ bool CoreWorker::start_esp32_threads()
 					//	gud = txtur->load(espp.package_combine_file);
 					//}).wait();
 					gud = txtur->load(espp.package_combine_file);
+					
 
 					if (!gud) { // txtur->load(texture_config().set_file(espp.package_combine_file).set_flags(ALLEGRO_MEMORY_BITMAP).set_format(ALLEGRO_PIXEL_FORMAT_ANY))
 						cout << console::color::RED << "[CLIENT] Could not load the file as texture! ABORT!";
@@ -323,6 +314,40 @@ bool CoreWorker::start_esp32_threads()
 						auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
 						client.close_socket();
 						return;
+					}
+
+					if (shrd.conf.get_as<bool>("filemanagement", "save_all")) {
+						cout << console::color::AQUA << "[CLIENT] Saving file...";
+						const std::string path = shrd.conf.get("filemanagement", "export_path");
+
+						if (path.length() > 3) {
+							std::tm tm;
+							std::time_t tim = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+							_gmtime64_s(&tm, &tim);
+
+							char lul[64];
+							strftime(lul, 64, "%F-%H-%M-%S", &tm);
+							char decc[8];
+							sprintf_s(decc, "%04lld", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() % 1000);
+							std::string fullpath = path + "/" + lul + '-' + decc + ".jpg";
+
+							//cout << "Would save at '" << fullpath << "'";
+							if (!al_save_bitmap(fullpath.c_str(), txtur->get_raw_bitmap())) {
+								cout << console::color::RED << "[CLIENT] Bad news saving image.";
+								async_task([path] {
+									al_show_native_message_box(nullptr, u8"Falha ao salvar imagem!", u8"Houve uma falha!", (u8"Infelizmente não fui capaz de escrever no caminho para salvar a imagem:\n" + path).c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+								});
+							}
+							else {
+								cout << console::color::AQUA << "[CLIENT] Saved image! (/" << (lul + '-' + std::string(decc) + ".jpg") << ")";
+							}
+						}
+						else {
+							shrd.conf.set("filemanagement", "save_all", false);
+							async_task([path] {
+								al_show_native_message_box(nullptr, u8"O caminho se tornou inválido?!", u8"Houve uma falha!", (u8"Infelizmente não fui capaz de abrir o caminho para salvar a imagem:\n" + path).c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+							});
+						}
 					}
 
 					cout << console::color::AQUA << "[CLIENT] Working on image...";
@@ -355,6 +380,8 @@ bool CoreWorker::start_esp32_threads()
 				cout << console::color::AQUA << "[CLIENT] ESP32 got weight info:";
 				cout << console::color::AQUA << "[CLIENT] Good: " << pkg.data.esp.weight_info.good_side_kg << " kg";
 				cout << console::color::AQUA << "[CLIENT] Bad:  " << pkg.data.esp.weight_info.bad_side_kg << " kg";
+				espp.current_good = pkg.data.esp.weight_info.good_side_kg;
+				espp.current_bad = pkg.data.esp.weight_info.bad_side_kg;
 				espp.status = _esp32_communication::package_status::IDLE;
 				auto_update_wifi_icon(textures_enum::WIFI_IDLE);
 			}
@@ -524,7 +551,8 @@ bool CoreWorker::full_load()
 		const auto make_button = [&boys = shrd.casted_boys, &font = dspy.src_font]
 			(const stage_enum stag, const std::initializer_list<hybrid_memory<texture>> textures, const float boxscalg, const float boxscalx, const float boxscaly,
 			const float boxposx, const float boxposy, const color boxcolor, const color textcolor, const float txtscale, const std::string& textstr, const float smoothness,
-			const std::function<void(sprite*)> ftick = [](auto){}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto,auto){}, const std::function<void(sprite*)> rstf = [](auto){})
+			const std::function<void(sprite*)> ftick = [](auto){}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto,auto){}, const std::function<void(sprite*)> rstf = [](auto){},
+			const std::function<void(sprite*)> ftxttick = [](auto) {})
 		{ {
 			hybrid_memory<sprite> each;
 			text* txt = nullptr;
@@ -561,12 +589,13 @@ bool CoreWorker::full_load()
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, textstr);
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			boys[stag].push_back(make_hybrid<sprite_pair>(std::move(each), [](auto) {}, [](auto, auto) {}, rstf, stag));
+			boys[stag].push_back(make_hybrid<sprite_pair>(std::move(each), ftxttick, [](auto, auto) {}, rstf, stag));
 		} };
 
 		const auto make_common_button = [&boys = shrd.casted_boys, &font = dspy.src_font, &txture_map = shrd.texture_map, &make_button, &curr_set](const float width, const float height, const float px, const float py, const color boxclr, const std::string& txtt,
-			const std::function<void(sprite*)> ftick = [](auto){}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto,auto){}, const std::function<void(sprite*)> rstf = [](auto){}, const float animspeed = 4.0f, const float font_siz = 0.12f) {
-			make_button(curr_set, { txture_map[textures_enum::BUTTON_UP], txture_map[textures_enum::BUTTON_DOWN] }, 0.2f, width, height, px, py, boxclr, color(200, 200, 200), font_siz, txtt, animspeed, ftick, [fclick](sprite* s, const sprite_pair::cond& v) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (v.is_mouse_on_it && v.is_mouse_pressed) ? 1 : 0); fclick(s, v); }, rstf);
+			const std::function<void(sprite*)> ftick = [](auto){}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto,auto){}, const std::function<void(sprite*)> rstf = [](auto){}, const float animspeed = 4.0f, const float font_siz = 0.12f,
+			const std::function<void(sprite*)> ftxttick = [](auto) {}) {
+			make_button(curr_set, { txture_map[textures_enum::BUTTON_UP], txture_map[textures_enum::BUTTON_DOWN] }, 0.2f, width, height, px, py, boxclr, color(200, 200, 200), font_siz, txtt, animspeed, ftick, [fclick](sprite* s, const sprite_pair::cond& v) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (v.is_mouse_on_it && v.is_mouse_pressed) ? 1 : 0); fclick(s, v); }, rstf, ftxttick);
 		};
 		const auto make_color_box = [&boys = shrd.casted_boys, &make_button, &curr_set](const float width = 1.0f, const float height = 1.0f, const float px = 0.0f, const float py = 0.0f, const float smoothness = 0.0f, const color boxclr = color(0.1f, 0.1f, 0.1f, 0.6f),
 			const std::function<void(sprite*)> ftick = [](auto) {}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto, auto) {}, const std::function<void(sprite*)> rstf = [](auto) {})
@@ -632,22 +661,48 @@ bool CoreWorker::full_load()
 			shrd.mouse_pair.set_tick([&](sprite* raw) {
 				block* bl = (block*)raw;
 				bl->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, get_is_loading() ? 1 : 0);
-				bl->set<float>(enum_sprite_float_e::ROTATION, get_is_loading() ? static_cast<float>(std::fmod(al_get_time(), ALLEGRO_PI * 2.0)) : 0.0f);
+				bl->set<float>(enum_sprite_float_e::ROTATION, get_is_loading() ? static_cast<float>(/*std::fmod(*/al_get_time() * 3.0/*, ALLEGRO_PI * 2.0)*/) : 0.0f);
 			});
 
 						
-			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_SEARCHING]);
-			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_IDLE]);
-			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_TRANSFER]);
-			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_THINKING]);
-			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_COMMAND]);
-			shrd.wifi_blk.set<float>(enum_sprite_float_e::SCALE_G, 0.17f);
-			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_X, 0.89f);
-			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.89f);
-			//shrd.wifi_blk.set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			//shrd.wifi_blk.set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 4.0f);
-			shrd.wifi_blk.set<bool>(enum_sprite_boolean_e::DRAW_TRANSFORM_COORDS_KEEP_SCALE, true);
-			shrd.wifi_blk.set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			((block*)shrd.wifi_blk.get_notick())->texture_insert(shrd.texture_map[textures_enum::WIFI_SEARCHING]);
+			((block*)shrd.wifi_blk.get_notick())->texture_insert(shrd.texture_map[textures_enum::WIFI_IDLE]);
+			((block*)shrd.wifi_blk.get_notick())->texture_insert(shrd.texture_map[textures_enum::WIFI_TRANSFER]);
+			((block*)shrd.wifi_blk.get_notick())->texture_insert(shrd.texture_map[textures_enum::WIFI_THINKING]);
+			((block*)shrd.wifi_blk.get_notick())->texture_insert(shrd.texture_map[textures_enum::WIFI_COMMAND]);
+			((block*)shrd.wifi_blk.get_notick())->set<float>(enum_sprite_float_e::SCALE_G, 0.17f);
+			((block*)shrd.wifi_blk.get_notick())->set<float>(enum_sprite_float_e::POS_X, 0.89f);
+			((block*)shrd.wifi_blk.get_notick())->set<float>(enum_sprite_float_e::POS_Y, -0.89f);
+			((block*)shrd.wifi_blk.get_notick())->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 4.0f);
+			((block*)shrd.wifi_blk.get_notick())->set<bool>(enum_sprite_boolean_e::DRAW_TRANSFORM_COORDS_KEEP_SCALE, true);
+			((block*)shrd.wifi_blk.get_notick())->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.wifi_blk.set_tick([](sprite* s) {
+
+				int corr = static_cast<int>(((block*)s)->get<size_t>(enum_block_sizet_e::RO_DRAW_FRAME));
+				corr += static_cast<int>(textures_enum::__FIRST_WIFI);
+				if (corr > static_cast<int>(textures_enum::__LAST_WIFI)) corr = -1;
+
+				switch (corr) {
+				case static_cast<int>(textures_enum::WIFI_SEARCHING):
+					s->set<float>(enum_sprite_float_e::ROTATION, static_cast<float>(0.35 * cos(1.5 * al_get_time() + 0.8 * sin(al_get_time() * 1.2554 + 0.3 * ((random() % 1000) / 1000.0)))));
+					break;
+				case static_cast<int>(textures_enum::WIFI_IDLE):
+					s->set<float>(enum_sprite_float_e::ROTATION, static_cast<float>(0.25 * cos(0.7 * al_get_time())));
+					break;
+				case static_cast<int>(textures_enum::WIFI_TRANSFER):
+					s->set<float>(enum_sprite_float_e::ROTATION, static_cast<float>(0.25 * cos(4.5 * al_get_time())));
+					break;
+				case static_cast<int>(textures_enum::WIFI_THINKING):
+					s->set<float>(enum_sprite_float_e::ROTATION, static_cast<float>(al_get_time() * 3.0));
+					break;
+				case static_cast<int>(textures_enum::WIFI_COMMAND):
+					s->set<float>(enum_sprite_float_e::ROTATION, static_cast<float>(0.25 * cos(1.5 * al_get_time())));
+					break;
+				default:
+					s->set<float>(enum_sprite_float_e::ROTATION, 0.0f);
+					break;
+				}
+			});
 		}
 
 		cout << console::color::DARK_GRAY << "Building HOME sprites...";
@@ -658,7 +713,7 @@ bool CoreWorker::full_load()
 
 			make_color_box(1.0f, 1.0f, 0.0f, 0.0f, 0.0f, color(0.1f, 0.1f, 0.1f, 0.6f));
 
-			make_text(0.23f, 1.0f, 1.0f, 0.0f,  -0.67f, 5.0f, color(200, 200, 200), "Auto Smoke Selector", { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
+			make_text(0.23f, 1.0f, 1.0f, 0.0f,  -0.67f, 5.0f, color(235, 235, 235), "Auto Smoke Selector", { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
 				[](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_Y, -0.67f + static_cast<float>(0.022 * cos(al_get_time() + 0.4)));
 				},
@@ -668,6 +723,12 @@ bool CoreWorker::full_load()
 			make_text(0.23f, 1.0f, 1.0f, 0.0f,  -0.49f, 6.0f, color(200, 200, 200), "~~~~~~~~~~~~~~~~~~", { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
 				[](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_Y, -0.49f + static_cast<float>(0.022 * cos(al_get_time() + 0.2)));
+					((text*)s)->set<color>(enum_sprite_color_e::DRAW_TINT, 
+						color(
+							0.7f + static_cast<float>(limit_range_of(static_cast<float>(50.0 * cos(1.7 * al_get_time() + 0.0) - 49.0), 0.0f, 0.1f)),
+							0.7f + static_cast<float>(limit_range_of(static_cast<float>(50.0 * cos(3.2 * al_get_time() + 0.4) - 49.0), 0.0f, 0.1f)),
+							0.7f + static_cast<float>(limit_range_of(static_cast<float>(50.0 * cos(4.1 * al_get_time() + 1.6) - 49.0), 0.0f, 0.1f))
+						));
 				},
 				[](auto, auto) {},
 				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, -0.72f); });
@@ -675,7 +736,7 @@ bool CoreWorker::full_load()
 			make_text(0.05f, 1.7f, 1.0f, 0.0f, -0.42f, 8.0f, color(200, 200, 200), u8"by LAG | Lunaris B" + std::to_string(LUNARIS_BUILD_NUMBER), { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
 				[](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_Y, -0.42f + static_cast<float>(0.022 * cos(al_get_time())));
-					((text*)s)->set<color>(enum_sprite_color_e::DRAW_TINT, color(0.7f + static_cast<float>(0.15f * cos(al_get_time() * 0.733 + 0.5)), 0.7f + static_cast<float>(0.15f * sin(al_get_time() * 0.337 + 0.37)), 0.7f + static_cast<float>(0.15f * cos(al_get_time() * 0.48 + 1.25))));
+					((text*)s)->set<color>(enum_sprite_color_e::DRAW_TINT, color(0.7f + static_cast<float>(0.15f * cos(al_get_time() * 0.833 + 0.5)), 0.7f + static_cast<float>(0.15f * sin(al_get_time() * 0.537 + 0.37)), 0.7f + static_cast<float>(0.15f * cos(al_get_time() * 0.48 + 1.25))));
 				},
 				[](auto, auto) {},
 				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, -0.66f); });
@@ -685,7 +746,7 @@ bool CoreWorker::full_load()
 				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::CONFIG; } },
 				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, -1.5f); });
 
-			make_common_button(2.97f, 1.0f, 0.37f, 0.1f, color(25, 180, 25), "Preview",
+			make_common_button(2.97f, 1.0f, 0.37f, 0.1f, color(25, 180, 25), "Monitorar",
 				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::PREVIEW; } },
 				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, 1.5f); });
@@ -797,7 +858,6 @@ bool CoreWorker::full_load()
 					shrd.screen = stage_enum::HOME;
 
 					cout << console::color::AQUA << "[FILECHOOSER] This is the path to save images now: " << path;
-
 				});
 				} },
 				[&,pairs,y_off_comp](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, pairs[1][1] + y_off_comp); }, 1.0f, 0.10f);
@@ -869,6 +929,93 @@ bool CoreWorker::full_load()
 		{
 			shrd.screen_set[curr_set].min_y = 0.0f;
 			shrd.screen_set[curr_set].max_y = 0.0f;
+			
+
+			const float offauto = 0.40f;
+			const float offautox = 0.605f;
+			// ================ AUTOSAVE BAR
+			// First bar config
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.22f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 1.325f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.36f);
+			blk->set<float>(enum_sprite_float_e::POS_X, offautox);
+			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
+			blk->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 0.3f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+				std::move(each),
+				[](auto) {},
+				[](auto, auto) {},
+				[offauto](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto - 0.6f); },
+				curr_set
+			));
+			make_blk();
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, 0.745f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.37f);
+			blk->set<float>(enum_sprite_float_e::POS_X, offautox);
+			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
+			blk->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 0.3f);
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+				std::move(each),
+				[](auto) {},
+				[&, offautox](sprite* s, const sprite_pair::cond& down) {
+					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
+					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
+
+						shrd.conf.set("filemanagement", "save_all", (down.cpy.real_posx > offautox));
+
+						s->set<float>(enum_sprite_float_e::POS_X, offautox + (shrd.conf.get_as<bool>("filemanagement", "save_all") ? 0.07f : -0.07f));
+						s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+							0.4f + 0.6f * (!shrd.conf.get_as<bool>("filemanagement", "save_all")),
+							0.4f + 0.6f * shrd.conf.get_as<bool>("filemanagement", "save_all"),
+							0.4f));
+					}
+					else {
+						if (shrd.conf.get_as<bool>("filemanagement", "save_all") && shrd.conf.get("filemanagement", "export_path").length() < 3) {
+							shrd.conf.set("filemanagement", "save_all", false);
+							async_task([&, s] {
+								int res = al_show_native_message_box(nullptr, u8"Erro!", u8"Você ainda não tem um caminho para salvar as imagens!", u8"Quer que eu te leve ao lugar onde você pode configurar isso?\nVocê precisará clicar no botão para definir o caminho das imagens.", nullptr, ALLEGRO_MESSAGEBOX_YES_NO);
+								s->set<float>(enum_sprite_float_e::POS_X, offautox + (shrd.conf.get_as<bool>("filemanagement", "save_all") ? 0.07f : -0.07f));
+								s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+									0.4f + 0.6f * (!shrd.conf.get_as<bool>("filemanagement", "save_all")),
+									0.4f + 0.6f * shrd.conf.get_as<bool>("filemanagement", "save_all"),
+									0.4f));
+								if (res == 1) {
+									shrd.screen = stage_enum::HOME_OPEN;
+								}
+							});
+						}
+					}
+				},
+				[&,offauto, offautox](sprite* s) {
+					s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto - 0.6f);
+					s->set<float>(enum_sprite_float_e::POS_X, offautox + (shrd.conf.get_as<bool>("filemanagement", "save_all") ? 0.07f : -0.07f));
+					s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+						0.4f + 0.6f * (!shrd.conf.get_as<bool>("filemanagement", "save_all")),
+						0.4f + 0.6f * shrd.conf.get_as<bool>("filemanagement", "save_all"),
+						0.4f));
+				},
+				curr_set
+			));
+			make_text(0.075f, 1.0f, 1.0f, offautox - 0.17f, offauto - 0.028f, 3.0f, color(200, 200, 200), u8"Salvar cópias em disco?", { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
+				[](auto) {},
+				[](auto, auto) {},
+				[offauto](sprite* s) {((text*)s)->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_RIGHT); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, s->get<float>(enum_sprite_float_e::POS_X)); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto - 0.301f); });
+
 
 			// Image rendering
 			make_blk();
@@ -876,7 +1023,7 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.5f);
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, -0.15f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, -0.17f);
 			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
 			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
@@ -889,11 +1036,10 @@ bool CoreWorker::full_load()
 				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } },
 				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, -1.5f); });
 
-			make_common_button(4.0f, 0.65f, -0.5f, 0.5f, config_to_color(shrd.conf, "reference", "bad_plant"), "Definir cor como \"ruim\"",
+			make_common_button(4.0f, 0.65f, -0.5f, 0.59f, config_to_color(shrd.conf, "reference", "bad_plant"), "Definir cor como \"ruim\"",
 				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) {
 					s->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "bad_plant"));
-					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
 					if (down.is_unclick && down.is_mouse_on_it) {
 						color_to_config(shrd.conf, "reference", "bad_plant", shrd.background_color);
 						shrd.bad_plant = shrd.background_color;
@@ -903,11 +1049,10 @@ bool CoreWorker::full_load()
 				},
 				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, -1.5f); }, 2.0f, 0.08f);
 
-			make_common_button(4.0f, 0.65f, 0.5f, 0.5f, config_to_color(shrd.conf, "reference", "good_plant"), "Definir cor como \"boa\"",
+			make_common_button(4.0f, 0.65f, 0.5f, 0.59f, config_to_color(shrd.conf, "reference", "good_plant"), "Definir cor como \"boa\"",
 				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) {
 					s->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "good_plant"));
-					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
 					if (down.is_unclick && down.is_mouse_on_it) {
 						color_to_config(shrd.conf, "reference", "good_plant", shrd.background_color);
 						shrd.bad_plant = shrd.background_color;
@@ -917,12 +1062,12 @@ bool CoreWorker::full_load()
 				},
 				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, 1.5f); }, 2.0f, 0.08f);
 			
-			make_common_button(6.66667f, 1.0f, 0.0f, 0.77f, color(23, 180, 180), u8"Correção e ajuste global",
+			make_common_button(6.66667f, 1.0f, 0.0f, 0.84f, color(23, 180, 180), u8"Correção e ajuste global",
 				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::CONFIG_FIX; } },
 				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 1.5f); }, 1.75f);
 
-			make_text(0.075f, 1.0f, 1.0f, 0.0f, -0.65f, 8.0f, color(200, 200, 200), u8"Pensando..." + std::to_string(LUNARIS_BUILD_NUMBER), { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
+			make_text(0.075f, 1.0f, 1.0f, 0.0f, -0.67f, 8.0f, color(200, 200, 200), u8"Pensando...", { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
 				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"NÃO")); },
 				[](auto, auto) {},
 				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, s->get<float>(enum_sprite_float_e::POS_X)); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, s->get<float>(enum_sprite_float_e::POS_Y)); });
@@ -1434,6 +1579,93 @@ bool CoreWorker::full_load()
 			shrd.screen_set[curr_set].max_y = 0.0f;
 
 			make_color_box(1.0f, 1.0f, 0.0f, 0.0f, 0.0f, color(0.1f, 0.1f, 0.1f, 0.6f));
+			
+			const float offauto = 0.44f;
+			const float offautox = 0.605f;
+			// ================ AUTOSAVE BAR
+			// First bar config
+			{
+				make_blk();
+				blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+				blk->set<float>(enum_sprite_float_e::SCALE_G, 0.22f);
+				blk->set<float>(enum_sprite_float_e::SCALE_X, 1.325f);
+				blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.36f);
+				blk->set<float>(enum_sprite_float_e::POS_X, offautox);
+				blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+				blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+				blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
+				blk->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 0.3f);
+				blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
+				blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+				blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+				shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+					std::move(each),
+					[](auto) {},
+					[](auto, auto) {},
+					[offauto](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto - 0.6f); },
+					curr_set
+				));
+				make_blk();
+				blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
+				blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
+				blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
+				blk->set<float>(enum_sprite_float_e::SCALE_X, 0.745f);
+				blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.37f);
+				blk->set<float>(enum_sprite_float_e::POS_X, offautox);
+				blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+				blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+				blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
+				blk->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 0.3f);
+				blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+				blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+				blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+				shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+					std::move(each),
+					[](auto) {},
+					[&, offautox](sprite* s, const sprite_pair::cond& down) {
+						((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
+						if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
+
+							shrd.conf.set("filemanagement", "save_all", (down.cpy.real_posx > offautox));
+
+							s->set<float>(enum_sprite_float_e::POS_X, offautox + (shrd.conf.get_as<bool>("filemanagement", "save_all") ? 0.07f : -0.07f));
+							s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+								0.4f + 0.6f * (!shrd.conf.get_as<bool>("filemanagement", "save_all")),
+								0.4f + 0.6f * shrd.conf.get_as<bool>("filemanagement", "save_all"),
+								0.4f));
+						}
+						else {
+							if (shrd.conf.get_as<bool>("filemanagement", "save_all") && shrd.conf.get("filemanagement", "export_path").length() < 3) {
+								shrd.conf.set("filemanagement", "save_all", false);
+								async_task([&, s] {
+									int res = al_show_native_message_box(nullptr, u8"Erro!", u8"Você ainda não tem um caminho para salvar as imagens!", u8"Quer que eu te leve ao lugar onde você pode configurar isso?\nVocê precisará clicar no botão para definir o caminho das imagens.", nullptr, ALLEGRO_MESSAGEBOX_YES_NO);
+									s->set<float>(enum_sprite_float_e::POS_X, offautox + (shrd.conf.get_as<bool>("filemanagement", "save_all") ? 0.07f : -0.07f));
+									s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+										0.4f + 0.6f * (!shrd.conf.get_as<bool>("filemanagement", "save_all")),
+										0.4f + 0.6f * shrd.conf.get_as<bool>("filemanagement", "save_all"),
+										0.4f));
+									if (res == 1) {
+										shrd.screen = stage_enum::HOME_OPEN;
+									}
+								});
+							}
+						}
+					},
+					[&,offauto, offautox](sprite* s) {
+						s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto - 0.6f);
+						s->set<float>(enum_sprite_float_e::POS_X, offautox + (shrd.conf.get_as<bool>("filemanagement", "save_all") ? 0.07f : -0.07f));
+						s->set<color>(enum_sprite_color_e::DRAW_TINT, color(
+							0.4f + 0.6f * (!shrd.conf.get_as<bool>("filemanagement", "save_all")),
+							0.4f + 0.6f * shrd.conf.get_as<bool>("filemanagement", "save_all"),
+							0.4f));
+					},
+					curr_set
+				));
+				make_text(0.075f, 1.0f, 1.0f, offautox - 0.17f, offauto - 0.028f, 3.0f, color(200, 200, 200), u8"Salvar cópias em disco?", { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
+					[](auto) {},
+					[](auto, auto) {},
+					[offauto](sprite* s) {((text*)s)->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_RIGHT); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, s->get<float>(enum_sprite_float_e::POS_X)); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto - 0.301f); });
+			}
 
 			// Image rendering
 			make_blk();
@@ -1441,10 +1673,9 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.5f);
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, -0.13f);
 			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
 			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
 			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(std::move(each)));
@@ -1454,12 +1685,104 @@ bool CoreWorker::full_load()
 				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } },
 				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, -1.5f); });
 
-
-
-			make_text(0.09f, 1.0f, 1.0f, 0.0f, 0.68f, 8.0f, color(200, 200, 200), u8"Pensando..." + std::to_string(LUNARIS_BUILD_NUMBER), { text_shadow{ 0.005f,0.08f,color(0,0,0) } },
-				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"NÃO")); },
+			make_text(0.09f, 1.0f, 1.0f, 0.0f, 0.62f, 8.0f, color(200, 200, 200), u8"Pensando...", { text_shadow{ 0.004f,0.05f,color(0,0,0) } },
+				[&](sprite* s) {
+					text* t = (text*)s;
+					if (shrd.good_perc == 0.0f && shrd.bad_perc == 0.0f && espp.status == _esp32_communication::package_status::NON_CONNECTED) {
+						std::string a = ".";
+						for (size_t p = 0; p < (static_cast<size_t>(1.5 * al_get_time()) % 3); p++) a += '.';
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(u8"\nAguardando conexão" + a));
+					}
+					else {
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"NÃO"));
+					}
+				},
 				[](auto, auto) {},
-				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, s->get<float>(enum_sprite_float_e::POS_X)); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 1.1f); });
+				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, s->get<float>(enum_sprite_float_e::POS_X)); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 0.85f); });
+
+			
+
+			make_common_button(15.0f, 0.85f, 0.0f, 1.095f, color(25, 150, 65), u8"Não conectado",
+				[&](sprite* s) {
+					if (espp.status == _esp32_communication::package_status::NON_CONNECTED) {
+						s->set<color>(enum_sprite_color_e::DRAW_TINT, color(80, 15, 15));
+						s->set<float>(enum_sprite_float_e::POS_Y, 1.095f);
+						s->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 0.125f);
+					}
+					else {
+						s->set<color>(enum_sprite_color_e::DRAW_TINT, color(35, 100, 150));
+						s->set<float>(enum_sprite_float_e::POS_Y, 0.975f);
+						s->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 0.03f);
+					}
+				},
+				[&](auto,auto){},
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 1.095f); }, 30.0f, 0.09f,
+				[&](sprite* s) {
+					text* t = (text*)s;
+					if (espp.status == _esp32_communication::package_status::NON_CONNECTED) {
+						s->set<float>(enum_sprite_float_e::POS_Y, 1.03f);
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(u8"Não conectado"));
+						s->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 0.125f);
+					}
+					else {
+						s->set<float>(enum_sprite_float_e::POS_Y, 0.91f);
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(u8"<- \"bom\" --   -- \"ruim\" ->"));
+						s->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 0.03f);
+					}
+				});
+
+
+			make_common_button(3.0f, 0.7f, -0.7f, 1.2f, color(25, 150, 65), "---.--- kg",
+				[&](sprite* s) {
+					if (espp.status == _esp32_communication::package_status::NON_CONNECTED) s->set<float>(enum_sprite_float_e::POS_Y, 1.07f);
+					else																	s->set<float>(enum_sprite_float_e::POS_Y, 0.935f);
+				},
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { espp.ask_weight_when_time = al_get_time() + 1.0; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 1.07f); }, 15.0f, 0.12f,
+				[&](sprite* s) {
+					text* t = (text*)s;
+					s->set<float>(enum_sprite_float_e::POS_Y, 0.935f - 0.12f * 0.45f);
+					if (espp.status == _esp32_communication::package_status::NON_CONNECTED) {
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("offline"));
+						s->set<float>(enum_sprite_float_e::POS_Y, 1.07f - 0.12f * 0.45f);
+					}
+					else if ((al_get_time() + 1.0) > espp.ask_weight_when_time) {
+						std::string a = ".";
+						for (size_t p = 0; p < (static_cast<size_t>(3.0 * al_get_time()) % 3); p++) a += '.';
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, a);
+					}
+					else {
+						char formattt[40];
+						sprintf_s(formattt, "%07.3f kg", espp.current_good);
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(formattt));
+					}
+				});
+			
+			make_common_button(3.0f, 0.7f, 0.7f, 1.2f, color(150, 25, 65), "---.--- kg",
+				[&](sprite* s) {
+					if (espp.status == _esp32_communication::package_status::NON_CONNECTED) s->set<float>(enum_sprite_float_e::POS_Y, 1.07f);
+					else																	s->set<float>(enum_sprite_float_e::POS_Y, 0.935f);
+				},
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { espp.ask_weight_when_time = al_get_time() + 1.0; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 1.07f); }, 15.0f, 0.12f,
+				[&](sprite* s) {
+					text* t = (text*)s;
+					s->set<float>(enum_sprite_float_e::POS_Y, 0.935f - 0.12f * 0.45f);
+					if (espp.status == _esp32_communication::package_status::NON_CONNECTED) {
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("offline"));
+						s->set<float>(enum_sprite_float_e::POS_Y, 1.07f - 0.12f * 0.45f);
+					}
+					else if ((al_get_time() + 1.0) > espp.ask_weight_when_time) {
+						std::string a = ".";
+						for (size_t p = 0; p < (static_cast<size_t>(3.0 * al_get_time()) % 3); p++) a += '.';
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, a);
+					}
+					else {
+						char formattt[40];
+						sprintf_s(formattt, "%07.3f kg", espp.current_bad);
+						t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(formattt));
+					}
+				});
 
 		}
 	}
@@ -1480,7 +1803,7 @@ bool CoreWorker::full_load()
 			}
 			});
 		{
-			shrd.wifi_blk.think();
+			shrd.wifi_blk.get_think()->think();
 			shrd.mouse_pair.get_think()->think();
 		}
 	}, thread::speed::INTERVAL, 1.0/20);
@@ -1540,6 +1863,7 @@ void CoreWorker::handle_display_event(const ALLEGRO_EVENT& ev)
 
 void CoreWorker::handle_mouse_event(const int tp, const mouse::mouse_event& ev)
 {
+	shrd.last_mouse_movement = al_get_time();
 	if (shrd.kill_all) return;
 	block* mous = (block*)shrd.mouse_pair.get_notick();
 	if (!mous) return;
