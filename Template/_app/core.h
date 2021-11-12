@@ -58,7 +58,7 @@ class CoreWorker {
 		hybrid_memory<file> latest_esp32_file; // set after processing
 		hybrid_memory<texture> latest_esp32_texture; // set after processing
 		hybrid_memory<texture> latest_esp32_texture_orig; // memory bitmap in memory already baby
-		color background_color = color(16, 16, 16);
+		color background_color = color(32, 32, 32);
 
 		_shared(std::function<ALLEGRO_TRANSFORM(void)>);
 
@@ -69,6 +69,7 @@ class CoreWorker {
 	};
 	struct _display {
 		display_async disp; // START // OK
+		thread updatthr;
 		hybrid_memory<texture> src_atlas; // OK
 		hybrid_memory<font> src_font; // OK
 	};
@@ -95,6 +96,9 @@ class CoreWorker {
 	_shared  shrd;
 	_display dspy; // OK
 	_esp32_communication espp;
+
+	std::string get_default_config_path(); // easy clap
+	void ensure_config_defaults();
 
 	bool get_is_loading();
 	void auto_handle_process_image(const bool = true);

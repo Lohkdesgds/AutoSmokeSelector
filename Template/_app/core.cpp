@@ -1,4 +1,4 @@
-#include "core.h"
+﻿#include "core.h"
 
 CoreWorker::_shared::_shared(std::function<ALLEGRO_TRANSFORM(void)> f)
 	: mouse_work(f), mouse_pair(make_hybrid_derived<sprite, block>())
@@ -29,6 +29,25 @@ void CoreWorker::_esp32_communication::close_all()
 	packages_to_send.clear();
 
 	con.reset();
+}
+
+std::string CoreWorker::get_default_config_path()
+{
+	return get_standard_path() + "config.ini";
+}
+
+void CoreWorker::ensure_config_defaults()
+{
+	shrd.conf.ensure("processing", "saturation_compensation", 0.45, config::config_section_mode::SAVE);// how much sat compensation
+	shrd.conf.ensure("processing", "brightness_compensation", 0.10, config::config_section_mode::SAVE);// how much compensation to bright (up to +10%)
+	shrd.conf.ensure("processing", "overflow_boost", 1.05, config::config_section_mode::SAVE);// 1.0f = no overflow, less = less brightness and color
+	shrd.conf.ensure("processing", "area_center_x", 0.3f, config::config_section_mode::SAVE);// width of the center to consider
+	shrd.conf.ensure("processing", "area_center_y", 0.3f, config::config_section_mode::SAVE);// height of the center to consider
+	shrd.conf.ensure("processing", "center_weight", 9, config::config_section_mode::SAVE);// average weight of the center. More = more times considered
+	shrd.conf.ensure("reference", "good_plant", { (231.0f / 255.0f),(135.0f / 255.0f), (65.0f / 255.0f) }, config::config_section_mode::SAVE);
+	shrd.conf.ensure("reference", "bad_plant", { (19.0f / 255.0f),(140.0f / 255.0f), (74.0f / 255.0f) }, config::config_section_mode::SAVE);
+	shrd.conf.ensure("filemanagement", "export_path", " ", config::config_section_mode::SAVE);
+	shrd.conf.ensure("filemanagement", "save_all", false, config::config_section_mode::SAVE);
 }
 
 bool CoreWorker::get_is_loading()
@@ -82,6 +101,10 @@ void CoreWorker::hook_display_load()
 
 		const float x_off = min_x + static_cast<float>(max_x - min_x) * cp;
 
+		const float xoff0 = limit_range_of(x_off + static_cast<float>(2.5 * cos(3.011 * al_get_time() + 0.532)), min_x, max_x);
+		const float xoff1 = limit_range_of(x_off + static_cast<float>(2.5 * sin(4.135 * al_get_time() + 2.114)), min_x, max_x);
+		
+
 		ALLEGRO_VERTEX vf[] = {
 			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.25f + 0.05f * cp, 0.25f + 0.05f * cp, 0.25f + 0.05f * cp) },
 			ALLEGRO_VERTEX{max_x, min_y, 0, 0, 0, color(0.25f + 0.05f * cp, 0.25f + 0.05f * cp, 0.25f + 0.05f * cp) },
@@ -90,8 +113,8 @@ void CoreWorker::hook_display_load()
 		};
 		ALLEGRO_VERTEX v1[] = {
 			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.65f - 0.3f * cp, 0.65f - 0.1f * cp, 0.65f - 0.3f * cp) },
-			ALLEGRO_VERTEX{x_off, min_y, 0, 0, 0, color(0.73f            , 0.73f + 0.5f * cp, 0.73f            ) },
-			ALLEGRO_VERTEX{x_off, max_y, 0, 0, 0, color(0.43f            , 0.43f + 0.5f * cp, 0.43f            ) },
+			ALLEGRO_VERTEX{xoff0, min_y, 0, 0, 0, color(0.73f            , 0.73f + 0.5f * cp, 0.73f            ) },
+			ALLEGRO_VERTEX{xoff1, max_y, 0, 0, 0, color(0.43f            , 0.43f + 0.5f * cp, 0.43f            ) },
 			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.35f - 0.3f * cp, 0.35f - 0.1f * cp, 0.35f - 0.3f * cp) }
 		};
 
@@ -101,7 +124,7 @@ void CoreWorker::hook_display_load()
 		al_draw_indexed_prim((void*)v1, nullptr, nullptr, indices1, 4, ALLEGRO_PRIM_TRIANGLE_FAN);
 
 		std::this_thread::sleep_until(timm);
-	});
+	});	
 }
 
 void CoreWorker::hook_display_default()
@@ -115,20 +138,15 @@ void CoreWorker::hook_display_default()
 			
 			shrd.background_color.clear_to_this();
 
-			shrd.casted_boys[shrd.screen].safe([&](std::vector<sprite_pair>& mypairs) {
+			shrd.casted_boys[shrd.screen].safe([&](std::vector<hybrid_memory<sprite_pair>>& mypairs) {
 				for (auto& i : mypairs) {
-					i.get_sprite()->think();
-					i.get_sprite()->draw();
+					i->get_notick()->draw();
 				}
-				});
+			});
 
 			{
-				shrd.wifi_blk.think();
 				shrd.wifi_blk.draw();
-
-				const auto mous = shrd.mouse_pair.get_sprite();
-				mous->think();
-				mous->draw();
+				shrd.mouse_pair.get_notick()->draw();
 			}
 
 			std::this_thread::sleep_until(timm);
@@ -247,7 +265,7 @@ bool CoreWorker::start_esp32_threads()
 				}
 
 				if (pkg.left == 0) {
-					cout << console::color::RED << "[CLIENT] End of file!";
+					cout << console::color::YELLOW << "[CLIENT] End of file!";
 					espp.package_combine_file->flush();
 					auto_update_wifi_icon(textures_enum::WIFI_THINKING);
 
@@ -272,6 +290,23 @@ bool CoreWorker::start_esp32_threads()
 					}
 
 					espp.package_combine_file->seek(0, file::seek_mode_e::BEGIN);
+
+					if (shrd.conf.get_as<bool>("filemanagement", "save_all")) {
+						cout << console::color::AQUA << "[CLIENT] Saving file...";
+						const std::string path = shrd.conf.get("filemanagement", "export_path");
+
+						std::tm tm;
+						std::time_t tim;
+						_gmtime64_s(&tm, &tim);
+
+						char lul[64];
+						strftime(lul, 64, "%F-%H-%M-%S", &tm);
+						char decc[8];
+						sprintf_s(decc, "%04lld", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() % 1000);
+						std::string fullpath = path + "/" + lul + decc;
+
+						cout << "Would save at '" << fullpath << "'";
+					}
 
 					bool gud = false;
 
@@ -380,19 +415,12 @@ bool CoreWorker::full_load()
 
 	make_path(get_standard_path());
 
-	if (!shrd.conf.load(get_standard_path() + "config.ini")) {
+	if (!shrd.conf.load(get_default_config_path())) {
 		cout << console::color::YELLOW << "Creating new config file...";
-		shrd.conf.save_path(get_standard_path() + "config.ini");
+		shrd.conf.save_path(get_default_config_path());
 	}
 
-	shrd.conf.ensure("processing", "saturation_compensation", 0.45, config::config_section_mode::SAVE);// how much sat compensation
-	shrd.conf.ensure("processing", "brightness_compensation", 0.10, config::config_section_mode::SAVE);// how much compensation to bright (up to +10%)
-	shrd.conf.ensure("processing", "overflow_boost", 1.05, config::config_section_mode::SAVE);// 1.0f = no overflow, less = less brightness and color
-	shrd.conf.ensure("processing", "area_center_x", 0.3f, config::config_section_mode::SAVE);// width of the center to consider
-	shrd.conf.ensure("processing", "area_center_y", 0.3f, config::config_section_mode::SAVE);// height of the center to consider
-	shrd.conf.ensure("processing", "center_weight", 9, config::config_section_mode::SAVE);// average weight of the center. More = more times considered
-	shrd.conf.ensure("reference", "good_plant", { (231.0f / 255.0f),(135.0f / 255.0f), (65.0f / 255.0f) }, config::config_section_mode::SAVE);
-	shrd.conf.ensure("reference", "bad_plant", { (19.0f / 255.0f),(140.0f / 255.0f), (74.0f / 255.0f) }, config::config_section_mode::SAVE);
+	ensure_config_defaults();
 
 	if (!shrd.conf.flush()) {
 		cout << console::color::DARK_RED << "Failed saving config at least once!";
@@ -481,6 +509,7 @@ bool CoreWorker::full_load()
 		hybrid_memory<sprite> each;
 		text* txt = nullptr;
 		block* blk = nullptr;
+		auto curr_set = stage_enum::HOME;
 
 		const auto make_txt = [&] {
 			each = make_hybrid_derived<sprite, text>();
@@ -490,11 +519,108 @@ bool CoreWorker::full_load()
 			each = make_hybrid_derived<sprite, block>();
 			blk = (block*)(each.get());
 		};
+		
+
+		const auto make_button = [&boys = shrd.casted_boys, &font = dspy.src_font]
+			(const stage_enum stag, const std::initializer_list<hybrid_memory<texture>> textures, const float boxscalg, const float boxscalx, const float boxscaly,
+			const float boxposx, const float boxposy, const color boxcolor, const color textcolor, const float txtscale, const std::string& textstr, const float smoothness,
+			const std::function<void(sprite*)> ftick = [](auto){}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto,auto){}, const std::function<void(sprite*)> rstf = [](auto){})
+		{ {
+			hybrid_memory<sprite> each;
+			text* txt = nullptr;
+			block* blk = nullptr;
+
+			each = make_hybrid_derived<sprite, block>();
+			blk = (block*)(each.get());
+
+			for(const auto& it : textures) blk->texture_insert(it);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, boxscalg);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, boxscalx);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, boxscaly);
+			blk->set<float>(enum_sprite_float_e::POS_X, boxposx);
+			blk->set<float>(enum_sprite_float_e::POS_Y, boxposy);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, boxposx);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, boxposy);
+			blk->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, smoothness <= 1.0f ? 1.0f : (1.0f / smoothness));
+			blk->set<color>(enum_sprite_color_e::DRAW_TINT, boxcolor);
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
+			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
+			boys[stag].push_back(make_hybrid<sprite_pair>(std::move(each), ftick, fclick, rstf, stag));
+
+			each = make_hybrid_derived<sprite, text>();
+			txt = (text*)(each.get());
+
+			txt->font_set(font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, txtscale);
+			txt->set<float>(enum_sprite_float_e::SCALE_X, 0.95f);
+			txt->set<float>(enum_sprite_float_e::POS_X, boxposx);
+			txt->set<float>(enum_sprite_float_e::POS_Y, boxposy - txtscale * 0.45f);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, boxposx);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, boxposy - txtscale * 0.45f);
+			txt->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, smoothness <= 1.0f ? 1.0f : (1.0f / smoothness));
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, textstr);
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			boys[stag].push_back(make_hybrid<sprite_pair>(std::move(each), [](auto) {}, [](auto, auto) {}, rstf, stag));
+		} };
+
+		const auto make_common_button = [&boys = shrd.casted_boys, &font = dspy.src_font, &txture_map = shrd.texture_map, &make_button, &curr_set](const float width, const float height, const float px, const float py, const color boxclr, const std::string& txtt,
+			const std::function<void(sprite*)> ftick = [](auto){}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto,auto){}, const std::function<void(sprite*)> rstf = [](auto){}, const float animspeed = 4.0f, const float font_siz = 0.12f) {
+			make_button(curr_set, { txture_map[textures_enum::BUTTON_UP], txture_map[textures_enum::BUTTON_DOWN] }, 0.2f, width, height, px, py, boxclr, color(200, 200, 200), font_siz, txtt, animspeed, ftick, [fclick](sprite* s, const sprite_pair::cond& v) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (v.is_mouse_on_it && v.is_mouse_pressed) ? 1 : 0); fclick(s, v); }, rstf);
+		};
+		const auto make_color_box = [&boys = shrd.casted_boys, &make_button, &curr_set](const float width = 1.0f, const float height = 1.0f, const float px = 0.0f, const float py = 0.0f, const float smoothness = 0.0f, const color boxclr = color(0.1f, 0.1f, 0.1f, 0.6f),
+			const std::function<void(sprite*)> ftick = [](auto) {}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto, auto) {}, const std::function<void(sprite*)> rstf = [](auto) {})
+		{ {
+			hybrid_memory<sprite> each;
+			block* blk = nullptr;
+
+			each = make_hybrid_derived<sprite, block>();
+			blk = (block*)(each.get());
+
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 2.0f);
+			blk->set<float>(enum_sprite_float_e::SCALE_X, width);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, height);
+			blk->set<float>(enum_sprite_float_e::POS_X, px);
+			blk->set<float>(enum_sprite_float_e::POS_Y, py);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, px);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, py);
+			blk->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, smoothness <= 1.0f ? 1.0f : (1.0f / smoothness));
+			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, boxclr);
+			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
+			boys[curr_set].push_back(make_hybrid<sprite_pair>(std::move(each), ftick, fclick, rstf, curr_set));
+		} };
+		const auto make_text = [&boys = shrd.casted_boys, &font = dspy.src_font, &curr_set](const float siz, const float sx, const float sy, const float px, const float py, const float smoothness, const color txtclr, const std::string& txtstr, const std::initializer_list<text_shadow> tshad = {},
+			const std::function<void(sprite*)> ftick = [](auto) {}, const std::function<void(sprite*, const sprite_pair::cond&)> fclick = [](auto, auto) {}, const std::function<void(sprite*)> rstf = [](auto) {})
+		{ {
+			auto each = make_hybrid_derived<sprite, text>();
+			auto txt = (text*)(each.get());
+
+			txt->font_set(font);
+			txt->set<float>(enum_sprite_float_e::SCALE_G, siz);
+			txt->set<float>(enum_sprite_float_e::SCALE_X, sx);
+			txt->set<float>(enum_sprite_float_e::SCALE_Y, sy);
+			txt->set<float>(enum_sprite_float_e::POS_X, px);
+			txt->set<float>(enum_sprite_float_e::POS_Y, py);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, px);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, py);
+			txt->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, smoothness <= 1.0f ? 1.0f : (1.0f / smoothness));
+			txt->set<color>(enum_sprite_color_e::DRAW_TINT, txtclr);
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, txtstr);
+			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
+			for (const auto& it : tshad) txt->shadow_insert(it);
+			boys[curr_set].push_back(make_hybrid<sprite_pair>(std::move(each), ftick, fclick, rstf, curr_set));
+		} };
+
+
+		//const auto sindx = [](const sprite* s, const size_t v) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, v); };
+
+
+
 
 
 		cout << console::color::DARK_GRAY << "Building global sprites...";
 		{
-			blk = (block*)shrd.mouse_pair.get_sprite();
+			blk = (block*)shrd.mouse_pair.get_notick();
 			blk->texture_insert(shrd.texture_map[textures_enum::MOUSE]);
 			blk->texture_insert(shrd.texture_map[textures_enum::MOUSE_LOADING]);
 			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
@@ -515,229 +641,234 @@ bool CoreWorker::full_load()
 			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_TRANSFER]);
 			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_THINKING]);
 			shrd.wifi_blk.texture_insert(shrd.texture_map[textures_enum::WIFI_COMMAND]);
-			shrd.wifi_blk.set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
-			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_X, 0.85f);
-			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.85f);
+			shrd.wifi_blk.set<float>(enum_sprite_float_e::SCALE_G, 0.17f);
+			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_X, 0.89f);
+			shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.89f);
 			//shrd.wifi_blk.set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			//shrd.wifi_blk.set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, 4.0f);
 			shrd.wifi_blk.set<bool>(enum_sprite_boolean_e::DRAW_TRANSFORM_COORDS_KEEP_SCALE, true);
 			shrd.wifi_blk.set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
 		}
-		post_progress_val(0.80f);
 
 		cout << console::color::DARK_GRAY << "Building HOME sprites...";
+		curr_set = stage_enum::HOME;
 		{
-			shrd.screen_set[stage_enum::HOME].min_y = 0.0f;
-			shrd.screen_set[stage_enum::HOME].max_y = 0.0f;
+			shrd.screen_set[curr_set].min_y = 0.0f;
+			shrd.screen_set[curr_set].max_y = 0.0f;
 
-			// Darken everything
-			make_blk();
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 2.0f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.1f, 0.1f, 0.1f, 0.6f));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
-			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
+			make_color_box(1.0f, 1.0f, 0.0f, 0.0f, 0.0f, color(0.1f, 0.1f, 0.1f, 0.6f));
 
-			// Testing zone text home
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.25f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, -0.6f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Auto Smoke Selector"));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
+			make_text(0.23f, 1.0f, 1.0f, 0.0f,  -0.67f, 5.0f, color(200, 200, 200), "Auto Smoke Selector", { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
+				[](sprite* s) {
+					s->set<float>(enum_sprite_float_e::POS_Y, -0.67f + static_cast<float>(0.022 * cos(al_get_time() + 0.4)));
+				},
+				[](auto,auto) {},
+				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, -0.9f); });
 
-			// Check work button
-			make_blk();
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 2.97f);
-			blk->set<float>(enum_sprite_float_e::POS_X, -0.37f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.2f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 25));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
-			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::HOME].push_back({
-				std::move(each),
+			make_text(0.23f, 1.0f, 1.0f, 0.0f,  -0.49f, 6.0f, color(200, 200, 200), "~~~~~~~~~~~~~~~~~~", { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
+				[](sprite* s) {
+					s->set<float>(enum_sprite_float_e::POS_Y, -0.49f + static_cast<float>(0.022 * cos(al_get_time() + 0.2)));
+				},
+				[](auto, auto) {},
+				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, -0.72f); });
+
+			make_text(0.05f, 1.7f, 1.0f, 0.0f, -0.42f, 8.0f, color(200, 200, 200), u8"by LAG | Lunaris B" + std::to_string(LUNARIS_BUILD_NUMBER), { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
+				[](sprite* s) {
+					s->set<float>(enum_sprite_float_e::POS_Y, -0.42f + static_cast<float>(0.022 * cos(al_get_time())));
+					((text*)s)->set<color>(enum_sprite_color_e::DRAW_TINT, color(0.7f + static_cast<float>(0.15f * cos(al_get_time() * 0.733 + 0.5)), 0.7f + static_cast<float>(0.15f * sin(al_get_time() * 0.337 + 0.37)), 0.7f + static_cast<float>(0.15f * cos(al_get_time() * 0.48 + 1.25))));
+				},
+				[](auto, auto) {},
+				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, -0.66f); });
+
+			make_common_button(2.97f, 1.0f, -0.37f, 0.1f, color(25, 180, 25), "Config",
 				[](auto) {},
-				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { 
-					shrd.screen = stage_enum::CONFIG; } }
-			});
-			// Check work text
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, -0.37f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, 0.13f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Config"));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::CONFIG; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, -1.5f); });
 
-			// Only preview button
-			make_blk();
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 2.97f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.37f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.2f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 25));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
-			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::HOME].push_back({
-				std::move(each),
+			make_common_button(2.97f, 1.0f, 0.37f, 0.1f, color(25, 180, 25), "Preview",
 				[](auto) {},
-				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { 
-					shrd.screen = stage_enum::PREVIEW; } }
-			});
-			// Only preview text
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.37f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, 0.13f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Preview"));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::PREVIEW; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, 1.5f); });
 
-			// Import image
-			make_blk();
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.5f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(25, 200, 200));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
-			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::HOME].push_back({
-				std::move(each),
+			make_common_button(6.66667f, 1.0f, 0.0f, 0.4f, color(23, 180, 180), "Arquivo...",
 				[](auto) {},
-				[&](sprite* s, const sprite_pair::cond& down) {
-					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
-					if (down.is_unclick && down.is_mouse_on_it) { 
-						async_task([&] {
-							cout << console::color::AQUA << "[FILECHOOSER] Asking for file...";
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME_OPEN; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 1.5f); });
 
-							auto dialog = std::unique_ptr<ALLEGRO_FILECHOOSER, void(*)(ALLEGRO_FILECHOOSER*)>(
-								al_create_native_file_dialog(
-									nullptr,
-									"Escolha uma imagem!",
-									"*.jpg;*.png;*.bmp;*.jpeg",
-									ALLEGRO_FILECHOOSER_FILE_MUST_EXIST | ALLEGRO_FILECHOOSER_PICTURES
-								), al_destroy_native_file_dialog);
-
-							bool got_something = al_show_native_file_dialog(nullptr, dialog.get());
-							int amount_of_items_selected = got_something ? al_get_native_file_dialog_count(dialog.get()) : 0; // must be 1 or bigger.
-
-							cout << console::color::AQUA << "[FILECHOOSER] File check: HAS? " << (got_something ? "TRUE" : "FALSE") << " SIZE=" << amount_of_items_selected;
-
-							if (got_something && amount_of_items_selected > 0) {
-								std::string path = al_get_native_file_dialog_path(dialog.get(), 0);
-								cout << console::color::AQUA << "[FILECHOOSER] Managing path...";
-
-								auto fpp = make_hybrid<file>();
-								auto txtur = make_hybrid<texture>();
-
-								if (!fpp->open(path.c_str(), file::open_mode_e::READ_TRY)) {
-									al_show_native_message_box(nullptr, "Failed", "Failed opening file.", ("I could not open '" + path + "'. Sorry!").c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
-									return;
-								}
-
-								bool gud = txtur->load(fpp);
-
-								if (!gud) {
-									al_show_native_message_box(nullptr, "Failed", "Failed opening file.", ("I could not load '" + path + "' as an image. Sorry!").c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
-									return;
-								}
-
-								cout << console::color::AQUA << "[FILECHOOSER] Processing image...";
-
-								shrd.latest_esp32_texture.replace_shared(std::move(txtur->duplicate())); // gonna be translated to VIDEO_BITMAP
-								shrd.latest_esp32_texture_orig.replace_shared(std::move(txtur.reset_shared())); // this is MEMORY_BITMAP
-								shrd.latest_esp32_file.replace_shared(std::move(fpp.reset_shared()));
-
-								auto_handle_process_image(false);
-
-								cout << console::color::AQUA << "[FILECHOOSER] Done.";
-
-								shrd.screen = stage_enum::CONFIG;
-							}
-							else if (got_something && amount_of_items_selected == 0) {
-								cout << console::color::AQUA << "[FILECHOOSER] Showing error expected file but list is empty.";
-								al_show_native_message_box(nullptr, "Failed", "Failed opening file.", "I didn't get any files! This looks like a bug to me.", nullptr, ALLEGRO_MESSAGEBOX_ERROR);
-							}
-							cout << console::color::AQUA << "[FILECHOOSER] Ended.";
-						});
-					} }
-			});
-			// Import image text
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, 0.43f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Abrir..."));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
-
-			// Exit button
-			make_blk();
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.8f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(45, 45, 65));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
-			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::HOME].push_back({
-				std::move(each),
+			make_common_button(6.66667f, 1.0f, 0.0f, 0.7f, color(150, 45, 45), "Sair",
 				[](auto) {},
-				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { shrd.kill_all = true; } }
-			});
-			// Exit button text
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, 0.73f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Sair"));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::HOME].push_back({ std::move(each) });
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.kill_all = true; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 2.5f); });
 
 		}
-		post_progress_val(0.85f);
+
+		cout << console::color::DARK_GRAY << "Building HOME_OPEN sprites...";
+		curr_set = stage_enum::HOME_OPEN;
+		{
+			shrd.screen_set[curr_set].min_y = 0.0f;
+			shrd.screen_set[curr_set].max_y = 0.0f;
+
+			shrd.casted_boys[stage_enum::HOME].csafe([&](const std::vector<hybrid_memory<sprite_pair>>& vec) {
+				for (const auto& it : vec) {
+					hybrid_memory<sprite_pair> cpy = it;
+					shrd.casted_boys[curr_set].push_back(std::move(cpy));
+				}
+			});
+
+			const float block_y = 0.425f;
+			const float y_off_comp = 1.5f;
+
+			const float pairs[4][2] = {
+				{ 0.0f,    0.16f},
+				{ 0.0f,    0.42f},
+				{-0.425f,  0.68f},
+				{ 0.425f,  0.68f},
+			};
+			
+
+			make_color_box(1.0f, 1.0f, 0.0f, 0.0f, 0.0f, color(0.1f, 0.1f, 0.1f, 0.75f),
+				[](auto) {},
+				[](auto, auto) {},
+				[](auto) {});			
+
+			make_color_box(0.85f, 0.42f, 0.0f, block_y, 1.0f, color(0.4f, 0.4f, 0.4f, 0.6f),
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && !down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; }},
+				[&,block_y,y_off_comp](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, block_y + y_off_comp); });
+			
+			make_common_button(7.50f, 1.0f, pairs[0][0], pairs[0][1], color(36, 170, 170), "Abrir imagem",
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) {
+				async_task([&] {
+					const auto dialog = std::unique_ptr<ALLEGRO_FILECHOOSER, void(*)(ALLEGRO_FILECHOOSER*)>(al_create_native_file_dialog(nullptr, u8"Abra uma imagem para testar!", "*.jpg;*.png;*.bmp;*.jpeg", ALLEGRO_FILECHOOSER_FILE_MUST_EXIST | ALLEGRO_FILECHOOSER_PICTURES), al_destroy_native_file_dialog);
+					const bool got_something = al_show_native_file_dialog(nullptr, dialog.get()) && al_get_native_file_dialog_count(dialog.get()) > 0;
+
+					if (!got_something) return;
+
+					std::string path = al_get_native_file_dialog_path(dialog.get(), 0);
+
+					cout << console::color::AQUA << "[FILECHOOSER] Trying to open image: " << path;
+
+					auto fpp = make_hybrid<file>();
+					auto txtur = make_hybrid<texture>();
+
+					if (!fpp->open(path.c_str(), file::open_mode_e::READ_TRY)) {
+						al_show_native_message_box(nullptr, u8"Falha ao tentar ler", u8"Houve uma falha!", (u8"Infelizmente não fui capaz de abrir o caminho:\n" + path).c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+						return;
+					}
+
+					bool gud = txtur->load(fpp);
+
+					if (!gud) {
+						al_show_native_message_box(nullptr, u8"Falha ao tentar ler", u8"Houve uma falha!", (u8"Infelizmente não fui capaz de carregar este arquivo como imagem:\n" + path).c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+						return;
+					}
+
+					cout << console::color::AQUA << "[FILECHOOSER] Processing image...";
+
+					shrd.latest_esp32_texture.replace_shared(std::move(txtur->duplicate())); // gonna be translated to VIDEO_BITMAP
+					shrd.latest_esp32_texture_orig.replace_shared(std::move(txtur.reset_shared())); // this is MEMORY_BITMAP
+					shrd.latest_esp32_file.replace_shared(std::move(fpp.reset_shared()));
+
+					auto_handle_process_image(false);
+
+					cout << console::color::AQUA << "[FILECHOOSER] Done.";
+
+					shrd.screen = stage_enum::CONFIG;
+				});
+				} },
+				[&,pairs,y_off_comp](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, pairs[0][1] + y_off_comp); }, 1.0f, 0.10f);
+			
+			make_common_button(7.50f, 1.0f, pairs[1][0], pairs[1][1], color(140, 115, 36), "Caminho para salvar imagens",
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) {
+				async_task([&] {
+					const auto dialog = std::unique_ptr<ALLEGRO_FILECHOOSER, void(*)(ALLEGRO_FILECHOOSER*)>(al_create_native_file_dialog(nullptr, u8"Onde devo salvar as fotos, se habilitado?", "*.*", ALLEGRO_FILECHOOSER_FOLDER), al_destroy_native_file_dialog);
+					const bool got_something = al_show_native_file_dialog(nullptr, dialog.get()) && al_get_native_file_dialog_count(dialog.get()) > 0;
+
+					if (!got_something) return;
+
+					std::string path = al_get_native_file_dialog_path(dialog.get(), 0); // path/with/no/end
+
+					shrd.conf.set("filemanagement", "export_path", path);
+					shrd.conf.flush();
+
+					al_show_native_message_box(nullptr, u8"Sucesso!", u8"Salvo!", (u8"As próximas imagens devem ser salvas neste caminho:\n" + path + u8"\n\nOBSERVAÇÃO: Você PRECISA habilitar o salvamento das fotos na aba de preview ou de configuração para as fotos serem salvas!").c_str(), nullptr, ALLEGRO_MESSAGEBOX_WARN);
+					shrd.screen = stage_enum::HOME;
+
+					cout << console::color::AQUA << "[FILECHOOSER] This is the path to save images now: " << path;
+
+				});
+				} },
+				[&,pairs,y_off_comp](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, pairs[1][1] + y_off_comp); }, 1.0f, 0.10f);
+
+			make_common_button(3.25f, 1.0f, pairs[2][0], pairs[2][1], color(170, 75, 115), "Abrir config",
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { 
+				async_task([&] {
+					const auto dialog = std::unique_ptr<ALLEGRO_FILECHOOSER, void(*)(ALLEGRO_FILECHOOSER*)>(al_create_native_file_dialog(nullptr, u8"Qual arquivo de configuração deseja importar?", "*.ini", ALLEGRO_FILECHOOSER_FILE_MUST_EXIST), al_destroy_native_file_dialog);
+					const bool got_something = al_show_native_file_dialog(nullptr, dialog.get()) && al_get_native_file_dialog_count(dialog.get()) > 0;
+
+					if (!got_something) return;
+
+					std::string path = al_get_native_file_dialog_path(dialog.get(), 0);
+
+					shrd.conf.flush(); // guaranteed last data saved
+
+					if (!shrd.conf.load(path)) {
+						shrd.conf.load(get_default_config_path()); // if bad reload good data
+						al_show_native_message_box(nullptr, u8"Falha ao tentar ler", u8"Houve uma falha!", (u8"Infelizmente não fui capaz de abrir o caminho:\n" + path).c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+						return;
+					}
+					else {
+						ensure_config_defaults();
+						shrd.conf.save_path(get_default_config_path());
+						shrd.conf.flush();
+						al_show_native_message_box(nullptr, u8"Sucesso!", u8"Perfeito!", (u8"O arquivo abaixo foi importado com sucesso!\n" + path).c_str(), nullptr, ALLEGRO_MESSAGEBOX_WARN);
+						shrd.screen = stage_enum::HOME;
+					}
+
+					cout << console::color::AQUA << "[FILECHOOSER] Imported config: " << path;
+				});
+				} },
+				[&,pairs,y_off_comp](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, pairs[2][1] + y_off_comp); }, 1.0f, 0.10f);
+
+			make_common_button(3.25f, 1.0f, pairs[3][0], pairs[3][1], color(100, 80, 170), "Exportar config",
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) {
+				async_task([&] {
+					const auto dialog = std::unique_ptr<ALLEGRO_FILECHOOSER, void(*)(ALLEGRO_FILECHOOSER*)>(al_create_native_file_dialog(nullptr, u8"Onde deseja exportar uma cópia?", "*.ini", ALLEGRO_FILECHOOSER_SAVE), al_destroy_native_file_dialog);
+					const bool got_something = al_show_native_file_dialog(nullptr, dialog.get()) && al_get_native_file_dialog_count(dialog.get()) > 0;
+
+					if (!got_something) return;
+
+					std::string path = al_get_native_file_dialog_path(dialog.get(), 0);
+
+					shrd.conf.save_path(path);
+					bool savegood = shrd.conf.flush();
+					shrd.conf.save_path(get_default_config_path());
+
+					if (!savegood) {
+						al_show_native_message_box(nullptr, u8"Falha ao tentar escrever", u8"Houve uma falha!", (u8"Infelizmente não fui capaz de abrir o caminho:\n" + path).c_str(), nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+						return;
+					}
+					else {
+						al_show_native_message_box(nullptr, u8"Sucesso!", u8"Perfeito!", (u8"Exportei corretamente para o caminho abaixo!\n" + path).c_str(), nullptr, ALLEGRO_MESSAGEBOX_WARN);
+						shrd.screen = stage_enum::HOME;
+					}
+
+					cout << console::color::AQUA << "[FILECHOOSER] Exported config: " << path;
+				});
+				} },
+				[&,pairs,y_off_comp](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, pairs[3][1] + y_off_comp); }, 1.0f, 0.10f);
+
+		}
 
 		cout << console::color::DARK_GRAY << "Building CONFIG sprites...";
+		curr_set = stage_enum::CONFIG;
 		{
-			shrd.screen_set[stage_enum::CONFIG].min_y = 0.0f;
-			shrd.screen_set[stage_enum::CONFIG].max_y = 1.2f;
+			shrd.screen_set[curr_set].min_y = 0.0f;
+			shrd.screen_set[curr_set].max_y = 0.0f;
 
 			// Image rendering
 			make_blk();
@@ -746,55 +877,19 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, -0.15f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(std::move(each)));
 
-			// Go Home button
-			make_blk();
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, -0.85f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 25, 25));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
-			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
-				std::move(each),
+			make_common_button(3.5f, 1.0f, -0.7f, -0.85f, color(200, 25, 25), "Voltar",
 				[](auto) {},
-				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } }
-				});
-			// Go Home text
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, -0.92f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Voltar"));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, -1.5f); });
 
-			// Set bad button
-			make_blk();
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.13f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.0f);
-			blk->set<float>(enum_sprite_float_e::POS_X, -0.45f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.50f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "bad_plant"));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
-			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
-				std::move(each),
+			make_common_button(4.0f, 0.65f, -0.5f, 0.5f, config_to_color(shrd.conf, "reference", "bad_plant"), "Definir cor como \"ruim\"",
 				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) {
 					s->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "bad_plant"));
@@ -805,36 +900,11 @@ bool CoreWorker::full_load()
 						shrd.bad_perc = how_far(shrd.bad_plant, shrd.background_color);
 						shrd.good_perc = how_far(shrd.good_plant, shrd.background_color);
 					}
-				}
-				});
-			// Set bad text
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, -0.45f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, 0.465f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Definir isto como \"RUIM\""));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+				},
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, -1.5f); }, 2.0f, 0.08f);
 
-			// Set good button
-			make_blk();
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.13f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.0f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.45f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.50f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "good_plant"));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
-			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
-				std::move(each),
-				[&](sprite* s) {},
+			make_common_button(4.0f, 0.65f, 0.5f, 0.5f, config_to_color(shrd.conf, "reference", "good_plant"), "Definir cor como \"boa\"",
+				[](auto) {},
 				[&](sprite* s, const sprite_pair::cond& down) {
 					s->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "good_plant"));
 					((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0);
@@ -844,43 +914,58 @@ bool CoreWorker::full_load()
 						shrd.bad_perc = how_far(shrd.bad_plant, shrd.background_color);
 						shrd.good_perc = how_far(shrd.good_plant, shrd.background_color);
 					}
+				},
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, 1.5f); }, 2.0f, 0.08f);
+			
+			make_common_button(6.66667f, 1.0f, 0.0f, 0.77f, color(23, 180, 180), u8"Correção e ajuste global",
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::CONFIG_FIX; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 1.5f); }, 1.75f);
+
+			make_text(0.075f, 1.0f, 1.0f, 0.0f, -0.65f, 8.0f, color(200, 200, 200), u8"Pensando..." + std::to_string(LUNARIS_BUILD_NUMBER), { text_shadow{ 0.003f,0.02f,color(0,0,0) } },
+				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"NÃO")); },
+				[](auto, auto) {},
+				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, s->get<float>(enum_sprite_float_e::POS_X)); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, s->get<float>(enum_sprite_float_e::POS_Y)); });
+
+
+			shrd.casted_boys[curr_set].safe([&](std::vector<hybrid_memory<sprite_pair>>& vec) {
+				for (auto& ech : vec) ech->get_notick()->set<bool>(enum_sprite_boolean_e::DRAW_TRANSFORM_COORDS_KEEP_SCALE, true);
+			});
+		}
+
+		cout << console::color::DARK_GRAY << "Building CONFIG_FIX sprites...";
+		curr_set = stage_enum::CONFIG_FIX;
+		{
+			const float off_y = 0.74f;
+			const float anim_y = 1.5f;
+
+			shrd.screen_set[curr_set].min_y = 0.0f;
+			shrd.screen_set[curr_set].max_y = off_y;
+			
+
+			shrd.casted_boys[stage_enum::CONFIG].csafe([&](const std::vector<hybrid_memory<sprite_pair>>& vec) {
+				for (const auto& it : vec) {
+					hybrid_memory<sprite_pair> cpy = it;
+					shrd.casted_boys[curr_set].push_back(std::move(cpy));
 				}
-				});
-			// Set good text
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.45f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, 0.465f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Definir isto como \"BOM\""));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+			});
+
+			float offauto = 0.255f + off_y;
+
+			make_color_box(0.89f, 0.63f, 0.0f, offauto, 1.0f, color(0.1f, 0.1f, 0.1f, 0.7f),
+				[](auto) {},
+				[&](sprite* s, const sprite_pair::cond& down) { 
+					if (down.is_unclick && !down.is_mouse_on_it) { shrd.screen = stage_enum::CONFIG; }
+					if (down.is_unclick && down.is_mouse_on_it) {
+						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
+							auto_handle_process_image();
+						}
+					}
+				},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y - 0.75f); });
 
 
-			// Resume of percentage bad/good
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, -0.65f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Pensando..."));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			txt->shadow_insert(text_shadow{ 0.005f, 0.080f, color(0,0,0) });
-
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
-				std::move(each),
-				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"N�O")); },
-				[](auto,auto) {}
-				});
-
-
-			float offauto = 0.8f;
+			offauto -= 0.455f;
 
 			// ================ SATURATION BAR
 			// First bar config
@@ -891,11 +976,18 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+				std::move(each),
+				[](auto) {},
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			make_blk();
 			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
@@ -905,11 +997,12 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + (shrd.conf.get_as<float>("processing", "saturation_compensation") * 1.4f));
@@ -923,36 +1016,33 @@ bool CoreWorker::full_load()
 					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
 						shrd.conf.set("processing", "saturation_compensation", (down.cpy.real_posx + 0.7f) / 1.4f);
 					}
-					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
-							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
-							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
-							auto_handle_process_image();
-						}
-					}
-				}
-				});
+				},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			make_txt();
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(u8"Satura��o: +00% boost"));
+			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(u8"Saturação: +00% boost"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
-						u8"Satura��o: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "saturation_compensation")) * 100.0f)) + "% boost"
+						u8"Saturação: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "saturation_compensation")) * 100.0f)) + "% boost"
 					));
 				},
-				[&](auto, auto) {} });
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
-			offauto += 0.22f;
+			offauto += 0.19f;
 			// ================ BRIGHTNESS BAR
 			// First bar config
 			make_blk();
@@ -962,11 +1052,17 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+				std::move(each),
+				[](auto) {},
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			// First bar config slider
 			make_blk();
@@ -977,11 +1073,12 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + ((shrd.conf.get_as<float>("processing", "brightness_compensation") * 2.0f) * 1.4f)); // up to 0.5
@@ -995,36 +1092,33 @@ bool CoreWorker::full_load()
 					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
 						shrd.conf.set("processing", "brightness_compensation", 0.5f * (down.cpy.real_posx + 0.7f) / 1.4f);
 					}
-					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
-							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
-							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
-							auto_handle_process_image();
-						}
-					}
-				}
-				});
+				},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			make_txt();
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Brilho: +00% boost"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
 						"Brilho: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "brightness_compensation")) * 100.0f)) + "% boost"
 					));
 				},
-				[&](auto, auto) {} });
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
-			offauto += 0.22f;
+			offauto += 0.19f;
 			// ================ OVERFLOW BAR
 			// First bar config
 			make_blk();
@@ -1034,11 +1128,17 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+				std::move(each),
+				[](auto) {},
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			// First bar config slider
 			make_blk();
@@ -1049,11 +1149,12 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + ((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 1.4f));
@@ -1068,36 +1169,33 @@ bool CoreWorker::full_load()
 					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
 						shrd.conf.set("processing", "overflow_boost", 1.0f + (down.cpy.real_posx + 0.7f) / 1.4f);
 					}
-					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
-							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
-							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
-							auto_handle_process_image();
-						}
-					}
-				}
-				});
+				},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			make_txt();
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Ganho: +00%"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
 						"Ganho: +" + std::to_string((int)((shrd.conf.get_as<float>("processing", "overflow_boost") - 1.0f) * 100.0f)) + "%"
 					));
 				},
-				[&](auto, auto) {} });
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
-			offauto += 0.22f;
+			offauto += 0.19f;
 			// ================ CENTER WEIGHT BAR
 			// First bar config
 			make_blk();
@@ -1107,11 +1205,17 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+				std::move(each),
+				[](auto) {},
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			// First bar config slider
 			make_blk();
@@ -1122,11 +1226,12 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + (((shrd.conf.get_as<float>("processing", "center_weight") - 1.0f) / 29.0f) * 1.4f));
@@ -1141,36 +1246,33 @@ bool CoreWorker::full_load()
 					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
 						shrd.conf.set("processing", "center_weight", static_cast<int>(1.1f + 29.0f * (down.cpy.real_posx + 0.7f) / 1.4f));
 					}
-					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
-							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
-							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
-							auto_handle_process_image();
-						}
-					}
-				}
-				});
+				},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			make_txt();
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Peso central: x1"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
 						"Peso central: x" + std::to_string((int)(shrd.conf.get_as<float>("processing", "center_weight")))
 					));
 				},
-				[&](auto, auto) {} });
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
-			offauto += 0.22f;
+			offauto += 0.19f;
 			// ================ X AXIS BAR
 			// First bar config
 			make_blk();
@@ -1180,11 +1282,17 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+				std::move(each),
+				[](auto) {},
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			// First bar config slider
 			make_blk();
@@ -1195,11 +1303,12 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + (((shrd.conf.get_as<float>("processing", "area_center_x") - 0.1f) / 0.9f) * 1.4f));
@@ -1214,36 +1323,33 @@ bool CoreWorker::full_load()
 					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
 						shrd.conf.set("processing", "area_center_x", 0.1f + 0.9f * (down.cpy.real_posx + 0.7f) / 1.4f);
 					}
-					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
-							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
-							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
-							auto_handle_process_image();
-						}
-					}
-				}
-				});
+				},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			make_txt();
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Largura do centro: 00%"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
 						"Largura do centro: " + std::to_string((int)(shrd.conf.get_as<float>("processing", "area_center_x") * 100.0f)) + "%"
 					));
 				},
-				[&](auto, auto) {} });
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
-			offauto += 0.22f;
+			offauto += 0.18f;
 			// ================ Y AXIS BAR
 			// First bar config
 			make_blk();
@@ -1253,11 +1359,17 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.5f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(125, 125, 125));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({ std::move(each) });
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
+				std::move(each),
+				[](auto) {},
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			// First bar config slider
 			make_blk();
@@ -1268,11 +1380,12 @@ bool CoreWorker::full_load()
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.52f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			blk->set<float>(enum_sprite_float_e::POS_Y, offauto);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
 			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					s->set<float>(enum_sprite_float_e::POS_X, -0.7f + (((shrd.conf.get_as<float>("processing", "area_center_y") - 0.1f) / 0.9f) * 1.4f));
@@ -1287,117 +1400,70 @@ bool CoreWorker::full_load()
 					if (down.is_mouse_on_it && down.is_mouse_pressed && down.cpy.real_posx < 0.7f && down.cpy.real_posx > -0.7f) {
 						shrd.conf.set("processing", "area_center_y", 0.1f + 0.9f * (down.cpy.real_posx + 0.7f) / 1.4f);
 					}
-					if (down.is_unclick && down.is_mouse_on_it) {
-						if (shrd.latest_esp32_texture.valid() && !shrd.latest_esp32_texture->empty()) {
-							//dspy.disp.add_run_once_in_drawing_thread([&] {shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf); });
-							//shrd.background_color = process_image(*shrd.latest_esp32_texture, shrd.conf);
-							auto_handle_process_image();
-						}
-					}
-				}
-				});
+				},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 
 			make_txt();
 			txt->font_set(dspy.src_font);
 			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.13f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
+			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Altura do centro: 00%"));
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::CONFIG].push_back({
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(
 				std::move(each),
 				[&](sprite* s) {
 					((text*)s)->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string(
 						"Altura do centro: " + std::to_string((int)(shrd.conf.get_as<float>("processing", "area_center_y") * 100.0f)) + "%"
 					));
 				},
-				[&](auto, auto) {} });
+				[](auto, auto) {},
+				[offauto, anim_y](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, offauto + anim_y); }
+			));
 		}
-		post_progress_val(0.875f);
 
 		cout << console::color::DARK_GRAY << "Building PREVIEW sprites...";
+		curr_set = stage_enum::PREVIEW;
 		{
-			shrd.screen_set[stage_enum::PREVIEW].min_y = 0.0f;
-			shrd.screen_set[stage_enum::PREVIEW].max_y = 0.0f;
+			shrd.screen_set[curr_set].min_y = 0.0f;
+			shrd.screen_set[curr_set].max_y = 0.0f;
 
-			// Darken everything
-			make_blk();
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 2.0f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.1f, 0.1f, 0.1f, 0.6f));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
-			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
+			make_color_box(1.0f, 1.0f, 0.0f, 0.0f, 0.0f, color(0.1f, 0.1f, 0.1f, 0.6f));
 
 			// Image rendering
 			make_blk();
 			blk->texture_insert(shrd.latest_esp32_texture);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.8f);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.5f);
 			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
 			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, 0.05f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, 0.0f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
 			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
-			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
+			shrd.casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(std::move(each)));
 
-			// Go Home button
-			make_blk();
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_UP]);
-			blk->texture_insert(shrd.texture_map[textures_enum::BUTTON_DOWN]);
-			blk->set<float>(enum_sprite_float_e::SCALE_G, 0.2f);
-			blk->set<float>(enum_sprite_float_e::SCALE_X, 6.6667f);
-			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			blk->set<float>(enum_sprite_float_e::POS_Y, -0.8f);
-			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			blk->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 25, 25));
-			blk->set<bool>(enum_sprite_boolean_e::DRAW_USE_COLOR, true);
-			blk->set<bool>(enum_block_bool_e::DRAW_SET_FRAME_VALUE_READONLY, true);
-			shrd.casted_boys[stage_enum::PREVIEW].push_back({
-				std::move(each),
+			make_common_button(3.5f, 1.0f, -0.7f, -0.85f, color(200, 25, 25), "Voltar",
 				[](auto) {},
-				[&](sprite* s, const sprite_pair::cond& down) { ((block*)s)->set<size_t>(enum_block_sizet_e::RO_DRAW_FRAME, (down.is_mouse_on_it && down.is_mouse_pressed) ? 1 : 0); if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } }
-			});
-			// Go Home text
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.15f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, -0.87f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Voltar"));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			shrd.casted_boys[stage_enum::PREVIEW].push_back({ std::move(each) });
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { shrd.screen = stage_enum::HOME; } },
+				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, -1.5f); });
 
 
 
-			// Resume of percentage bad/good
-			make_txt();
-			txt->font_set(dspy.src_font);
-			txt->set<float>(enum_sprite_float_e::SCALE_G, 0.08f);
-			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
-			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
-			txt->set<float>(enum_sprite_float_e::POS_Y, 0.73f);
-			//txt->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
-			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
-			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::string("Pensando..."));
-			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
-			txt->shadow_insert(text_shadow{ 0.005f, 0.080f, color(0,0,0) });
+			make_text(0.09f, 1.0f, 1.0f, 0.0f, 0.68f, 8.0f, color(200, 200, 200), u8"Pensando..." + std::to_string(LUNARIS_BUILD_NUMBER), { text_shadow{ 0.005f,0.08f,color(0,0,0) } },
+				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"NÃO")); },
+				[](auto, auto) {},
+				[](sprite* s) {s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, s->get<float>(enum_sprite_float_e::POS_X)); s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 1.1f); });
 
-			shrd.casted_boys[stage_enum::PREVIEW].push_back({
-				std::move(each),
-				[&](sprite* s) {text* t = (text*)s; t->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, std::to_string(shrd.good_perc * 100.0f) + "% bom / " + std::to_string(shrd.bad_perc * 100.0f) + "% ruim\nConsiderado bom? " + (shrd.good_perc >= shrd.bad_perc ? "SIM" : u8"N�O")); },
-				[](auto,auto) {}
-			});
 		}
-		post_progress_val(0.90f);
 	}
+	post_progress_val(0.90f);
 	cout << console::color::DARK_GRAY << "Starting esp32 communication...";
 
 	if (!start_esp32_threads()) {
@@ -1405,6 +1471,19 @@ bool CoreWorker::full_load()
 		full_close("Can't start host to ESP32 connection!");
 		return false;
 	}
+
+	cout << console::color::DARK_GRAY << "Creating processing task...";
+	dspy.updatthr.task_async([&] {
+		shrd.casted_boys[shrd.screen].safe([&](std::vector<hybrid_memory<sprite_pair>>& mypairs) {
+			for (auto& i : mypairs) {
+				i->get_think()->think();
+			}
+			});
+		{
+			shrd.wifi_blk.think();
+			shrd.mouse_pair.get_think()->think();
+		}
+	}, thread::speed::INTERVAL, 1.0/20);
 
 	cout << console::color::DARK_GRAY << "Done.";
 	post_progress_val(1.00f);
@@ -1461,7 +1540,8 @@ void CoreWorker::handle_display_event(const ALLEGRO_EVENT& ev)
 
 void CoreWorker::handle_mouse_event(const int tp, const mouse::mouse_event& ev)
 {
-	block* mous = (block*)shrd.mouse_pair.get_sprite();
+	if (shrd.kill_all) return;
+	block* mous = (block*)shrd.mouse_pair.get_notick();
 	if (!mous) return;
 
 	switch (tp) {
@@ -1475,9 +1555,10 @@ void CoreWorker::handle_mouse_event(const int tp, const mouse::mouse_event& ev)
 			post_update_display_auto();
 		}
 
-		shrd.casted_boys[shrd.screen].safe([&](std::vector<sprite_pair>& mypairs) {
+		shrd.casted_boys[shrd.screen].safe([&](std::vector<hybrid_memory<sprite_pair>>& mypairs) {
 			for (auto& i : mypairs) {
-				collisionable thus(*i.get_sprite());
+				if (!i->does_work_on(shrd.screen)) continue;
+				collisionable thus(*i->get_notick());
 				thus.reset();
 				sprite_pair::cond cond;
 
@@ -1487,14 +1568,15 @@ void CoreWorker::handle_mouse_event(const int tp, const mouse::mouse_event& ev)
 				cond.is_mouse_pressed = ev.buttons_pressed != 0;
 				cond.cpy = ev;
 
-				i.update(cond);
+				i->update(cond);
 			}
 		});
 		break;
 	case ALLEGRO_EVENT_MOUSE_BUTTON_DOWN:
-		shrd.casted_boys[shrd.screen].safe([&](std::vector<sprite_pair>& mypairs) {
+		shrd.casted_boys[shrd.screen].safe([&](std::vector<hybrid_memory<sprite_pair>>& mypairs) {
 			for (auto& i : mypairs) {
-				collisionable thus(*i.get_sprite());
+				if (!i->does_work_on(shrd.screen)) continue;
+				collisionable thus(*i->get_notick());
 				thus.reset();
 				sprite_pair::cond cond;
 
@@ -1504,14 +1586,15 @@ void CoreWorker::handle_mouse_event(const int tp, const mouse::mouse_event& ev)
 				cond.is_mouse_pressed = true;
 				cond.cpy = ev;
 
-				i.update(cond);
+				i->update(cond);
 			}
 		});
 		break;
 	case ALLEGRO_EVENT_MOUSE_BUTTON_UP:
-		shrd.casted_boys[shrd.screen].safe([&](std::vector<sprite_pair>& mypairs) {
+		shrd.casted_boys[shrd.screen].safe([&](std::vector<hybrid_memory<sprite_pair>>& mypairs) {
 			for (auto& i : mypairs) {
-				collisionable thus(*i.get_sprite());
+				if (!i->does_work_on(shrd.screen)) continue;
+				collisionable thus(*i->get_notick());
 				thus.reset();
 				sprite_pair::cond cond;
 
@@ -1521,7 +1604,7 @@ void CoreWorker::handle_mouse_event(const int tp, const mouse::mouse_event& ev)
 				cond.is_mouse_pressed = false;
 				cond.cpy = ev;
 
-				i.update(cond);
+				i->update(cond);
 			}
 		});
 		break;
@@ -1551,6 +1634,7 @@ void CoreWorker::full_close(const std::string& warnstr)
 	hook_display_load(); // no resources used here
 
 	shrd.async_queue.signal_stop();
+	dspy.updatthr.signal_stop();
 
 	// _esp32_communication
 	cout << console::color::YELLOW << "- ESP32 COMMUNICATION -";
@@ -1568,6 +1652,7 @@ void CoreWorker::full_close(const std::string& warnstr)
 	// _display (textures & font)
 	cout << console::color::YELLOW << "- DISPLAY (textures and font) -";
 
+	dspy.updatthr.join();
 	dspy.disp.add_run_once_in_drawing_thread([&] {
 		for (auto& i : shrd.texture_map) {
 			i.store->destroy();
@@ -1592,7 +1677,7 @@ void CoreWorker::full_close(const std::string& warnstr)
 	post_progress_val(0.70f);
 
 	for(auto& i : shrd.casted_boys) {
-		i.second.safe([](std::vector<sprite_pair>& vec) {
+		i.second.safe([](std::vector<hybrid_memory<sprite_pair>>& vec) {
 			vec.clear();
 		});
 	}

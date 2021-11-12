@@ -4,7 +4,7 @@
 
 using namespace Lunaris;
 
-enum class stage_enum {HOME, CONFIG, PREVIEW, _SIZE};
+enum class stage_enum {HOME, HOME_OPEN, CONFIG, CONFIG_FIX, PREVIEW, _SIZE};
 enum class textures_enum{
 	MOUSE,			// Common mouse
 	MOUSE_LOADING,	// Mouse when loading, circle loading
@@ -31,6 +31,8 @@ struct stage_set {
 	float max_y = 0.0f;
 };
 
+const double last_call_considered_off = 0.2; // after 1 second no draw next get_sprite resets its params using on_reset
+
 class sprite_pair {
 public:
 	struct cond {
@@ -44,19 +46,32 @@ private:
 	hybrid_memory<sprite> sprite_ref;
 	std::function<void(sprite*, const cond&)> all_ev;
 	std::function<void(sprite*)> ticking;
+	std::function<void(sprite*)> on_reset;
+	double last_call = -0.1 - last_call_considered_off;
+	stage_enum stg = stage_enum::_SIZE;
+
+	//sprite_pair(const hybrid_memory<sprite>&);
 public:
-	sprite_pair(hybrid_memory<sprite>&&, std::function<void(sprite*)>, std::function<void(sprite*, const cond&)>);
+	sprite_pair(hybrid_memory<sprite>&&, std::function<void(sprite*)>, std::function<void(sprite*, const cond&)>, const std::function<void(sprite*)> = [](auto) {}, const stage_enum& = stage_enum::_SIZE);
 	sprite_pair(hybrid_memory<sprite>&&);
 
 	void set_func(std::function<void(sprite*, const cond&)>);
 	void set_tick(std::function<void(sprite*)>);
+	void set_on_reset(std::function<void(sprite*)>);
 
 	void update(const cond&);
 
-	sprite* get_sprite();
+	void lock_work(const stage_enum&);
+	bool does_work_on(const stage_enum&) const;
+
+	//sprite_pair clone() const;
+	//sprite_pair clone_nofunc() const;
+
+	sprite* get_think();
+	sprite* get_notick();
 };
 
-using sprite_pair_screen_vector = std::unordered_map<stage_enum, safe_vector<sprite_pair>>;
+using sprite_pair_screen_vector = std::unordered_map<stage_enum, safe_vector<hybrid_memory<sprite_pair>>>;
 
 sprite_pair_screen_vector get_default_sprite_map();
 

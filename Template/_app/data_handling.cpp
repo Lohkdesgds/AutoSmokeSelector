@@ -1,10 +1,20 @@
 #include "data_handling.h"
 
-sprite_pair::sprite_pair(hybrid_memory<sprite>&& spr, std::function<void(sprite*)> tk, std::function<void(sprite*, const cond&)> al)
-	: sprite_ref(std::move(spr)), all_ev(al), ticking(tk)
+//sprite_pair::sprite_pair(const hybrid_memory<sprite>& ref)
+//	: sprite_ref(ref)
+//{
+//	all_ev = [](auto, auto) {};
+//	ticking = [](auto) {};
+//	on_reset = [](auto) {};
+//	if (!sprite_ref.get()) throw std::runtime_error("Invalid empty sprite @ sprite_pair constructor");
+//}
+
+sprite_pair::sprite_pair(hybrid_memory<sprite>&& spr, std::function<void(sprite*)> tk, std::function<void(sprite*, const cond&)> al, std::function<void(sprite*)> rs, const stage_enum& wrk)
+	: sprite_ref(std::move(spr)), all_ev(al), ticking(tk), on_reset(rs), stg(wrk)
 {
 	if (!all_ev) throw std::runtime_error("Invalid empty function all_ev @ sprite_pair constructor");
 	if (!ticking) throw std::runtime_error("Invalid empty function ticking @ sprite_pair constructor");
+	if (!on_reset) throw std::runtime_error("Invalid empty function on_reset @ sprite_pair constructor");
 	if (!sprite_ref.get()) throw std::runtime_error("Invalid empty sprite @ sprite_pair constructor");
 }
 
@@ -13,6 +23,7 @@ sprite_pair::sprite_pair(hybrid_memory<sprite>&& spr)
 {
 	all_ev = [](auto,auto) {};
 	ticking = [](auto) {};
+	on_reset = [](auto) {};
 	if (!sprite_ref.get()) throw std::runtime_error("Invalid empty sprite @ sprite_pair constructor");
 }
 
@@ -27,14 +38,55 @@ void sprite_pair::set_tick(std::function<void(sprite*)> fe)
 	if (!fe) ticking = [](auto) {}; // empty, but not empty
 	else ticking = fe;
 }
+
+void sprite_pair::set_on_reset(std::function<void(sprite*)> fe)
+{
+	if (!fe) on_reset = [](auto) {}; // empty, but not empty
+	else on_reset = fe;
+}
+
 void sprite_pair::update(const cond& about)
 {
 	all_ev(sprite_ref.get(), about);
 }
 
-sprite* sprite_pair::get_sprite()
+void sprite_pair::lock_work(const stage_enum& v)
+{
+	stg = v;
+}
+
+bool sprite_pair::does_work_on(const stage_enum& v) const
+{
+	return stg == stage_enum::_SIZE || v == stg;
+}
+
+//sprite_pair sprite_pair::clone() const
+//{
+//	sprite_pair nw{ sprite_ref };
+//	nw.all_ev = all_ev;
+//	nw.ticking = ticking;
+//	nw.on_reset = on_reset;
+//	return nw;
+//}
+//
+//sprite_pair sprite_pair::clone_nofunc() const
+//{
+//	return { sprite_ref };
+//}
+
+sprite* sprite_pair::get_think()
 {
 	ticking(sprite_ref.get());
+	return sprite_ref.get();
+}
+
+sprite* sprite_pair::get_notick()
+{
+	if (al_get_time() - last_call > last_call_considered_off) {
+		sprite_ref->set<double>(enum_sprite_double_e::RO_DRAW_LAST_DRAW, al_get_time()); // enable forced smoothness
+		on_reset(sprite_ref.get());
+	}
+	last_call = al_get_time();
 	return sprite_ref.get();
 }
 
@@ -92,8 +144,8 @@ color process_image(texture& txtur, const config& conf)
 		double amount = 0;
 		size_t amount_brightness = 0;
 
-		for (size_t y = 0; y < txtur.get_height(); y++) {
-			for (size_t x = 0; x < txtur.get_width() && x < pitch_width; x++) {
+		for (size_t y = 0; y < static_cast<size_t>(txtur.get_height()); y++) {
+			for (size_t x = 0; x < static_cast<size_t>(txtur.get_width()) && x < static_cast<size_t>(pitch_width); x++) {
 
 				if ((x > min_x && x < max_x) && (y > min_y && y < max_y)) {
 
@@ -186,5 +238,5 @@ void color_to_config(config& c, const std::string& a, const std::string& b, cons
 
 float how_far(const color& a, const color& b)
 {
-	return 1.0f - static_cast<float>(pow(fabs((static_cast<double>(a.r - b.r)) * (static_cast<double>(a.g - b.g)) * (static_cast<double>(a.b - b.b))), 0.05));
+	return 1.0f - static_cast<float>(pow(fabs((static_cast<double>(a.r) - static_cast<double>(b.r)) * (static_cast<double>(a.g) - static_cast<double>(b.g)) * (static_cast<double>(a.b) - static_cast<double>(b.b))), 0.05));
 }
