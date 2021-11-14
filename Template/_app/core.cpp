@@ -48,6 +48,10 @@ void CoreWorker::ensure_config_defaults()
 	shrd.conf.ensure("reference", "bad_plant", { (19.0f / 255.0f),(140.0f / 255.0f), (74.0f / 255.0f) }, config::config_section_mode::SAVE);
 	shrd.conf.ensure("filemanagement", "export_path", std::string("&"), config::config_section_mode::SAVE);
 	shrd.conf.ensure("filemanagement", "save_all", false, config::config_section_mode::SAVE);
+	shrd.conf.ensure("display", "size_length", 800, config::config_section_mode::SAVE);
+	{
+		if (shrd.conf.get_as<int>("display", "size_length") < 150) shrd.conf.set("display", "size_length", 150);
+	}
 }
 
 bool CoreWorker::get_is_loading()
@@ -160,33 +164,20 @@ bool CoreWorker::start_esp32_threads()
 	espp.close_all();
 	espp.con = std::make_unique<_esp32_communication::host_stuff>();
 
-	if (!espp.con->hosting.setup(socket_config().set_port(ESP_HOST_PORT))) return false;
 
-	espp.commu.task_async([&] {
-		auto cli = espp.con->hosting.listen(5);
-		if (cli.has_socket()) {
-			if (espp.con->current.has_socket()) {
-				cli.close_socket(); // abort new unwanted ones
-			}
-			else { // has no connection, accept new.
-				cout << console::color::AQUA << "[CLIENT] New client!";
-				espp.con->current = std::move(cli);
-				espp.status = _esp32_communication::package_status::IDLE;
-				auto_update_wifi_icon(textures_enum::WIFI_IDLE);
-			}
-		}
-		if (!espp.con->current.has_socket() && espp.status != _esp32_communication::package_status::NON_CONNECTED) {
-			espp.status = _esp32_communication::package_status::NON_CONNECTED;
-			espp.ask_weight_when_time = al_get_time();
-			auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
-			cout << console::color::AQUA << "[CLIENT] Client disconnected.";
-		}
-	}, thread::speed::INTERVAL, 1.0);
 
 	espp.procc.task_async([&] {
 		if (!espp.con->current.has_socket()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(250));
-			return;
+			if (!espp.con->current.setup(socket_config().set_port(ESP_HOST_PORT).set_family(socket_config::e_family::IPV4).set_ip_address(esp32_ip_address_fixed))) // esp32_ip_address_fixed
+			{
+				espp.status = _esp32_communication::package_status::NON_CONNECTED;
+				auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
+				std::this_thread::sleep_for(std::chrono::milliseconds(250));
+				return;
+			}
+			else {
+				auto_update_wifi_icon(textures_enum::WIFI_IDLE);
+			}
 		}
 		else {
 			TCP_client& client = espp.con->current;
@@ -397,12 +388,54 @@ bool CoreWorker::start_esp32_threads()
 		}
 	}, thread::speed::HIGH_PERFORMANCE);
 
+
+	//if (!espp.con->hosting.setup(socket_config().set_port(ESP_HOST_PORT))) return false;
+	//
+	//espp.commu.task_async([&] {
+	//	auto cli = espp.con->hosting.listen(5);
+	//	if (cli.has_socket()) {
+	//		if (espp.con->current.has_socket()) {
+	//			cli.close_socket(); // abort new unwanted ones
+	//		}
+	//		else { // has no connection, accept new.
+	//			cout << console::color::AQUA << "[CLIENT] New client!";
+	//			espp.con->current = std::move(cli);
+	//			espp.status = _esp32_communication::package_status::IDLE;
+	//			auto_update_wifi_icon(textures_enum::WIFI_IDLE);
+	//		}
+	//	}
+	//	if (!espp.con->current.has_socket() && espp.status != _esp32_communication::package_status::NON_CONNECTED) {
+	//		espp.status = _esp32_communication::package_status::NON_CONNECTED;
+	//		espp.ask_weight_when_time = al_get_time();
+	//		auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
+	//		cout << console::color::AQUA << "[CLIENT] Client disconnected.";
+	//	}
+	//}, thread::speed::INTERVAL, 1.0);
+
 	return true;
 }
 
 bool CoreWorker::full_load()
 {
 	set_app_name("AutoSmokeSelector APP");
+
+	cout << console::color::DARK_GRAY << "Loading configuration file...";
+
+	make_path(get_standard_path());
+
+	if (!shrd.conf.load(get_default_config_path())) {
+		cout << console::color::YELLOW << "Creating new config file...";
+		shrd.conf.save_path(get_default_config_path());
+	}
+
+	ensure_config_defaults();
+
+	if (!shrd.conf.flush()) {
+		cout << console::color::DARK_RED << "Failed saving config at least once!";
+		full_close("Could not create/load configuration file properly!");
+		return false;
+	}
+	shrd.conf.auto_save(true);
 
 	post_progress_val(0.00f);
 	cout << console::color::DARK_GRAY << "Creating display...";
@@ -411,10 +444,10 @@ bool CoreWorker::full_load()
 		display_config()
 		.set_display_mode(
 			display_options()
-			.set_width(800)
-			.set_height(800)
+			.set_width(shrd.conf.get_as<int>("display", "size_length"))
+			.set_height(shrd.conf.get_as<int>("display", "size_length"))
 		)
-		.set_extra_flags(/*ALLEGRO_RESIZABLE |*/ ALLEGRO_OPENGL/* | ALLEGRO_NOFRAME*/)
+		.set_extra_flags(ALLEGRO_RESIZABLE | ALLEGRO_OPENGL/* | ALLEGRO_NOFRAME*/)
 		.set_window_title(get_app_name())
 		.set_fullscreen(false)
 		//.set_vsync(true)
@@ -437,24 +470,6 @@ bool CoreWorker::full_load()
 
 	dspy.disp.set_icon_from_icon_resource(IDI_ICON1);
 	post_progress_val(0.05f);
-
-	cout << console::color::DARK_GRAY << "Loading configuration file...";
-
-	make_path(get_standard_path());
-
-	if (!shrd.conf.load(get_default_config_path())) {
-		cout << console::color::YELLOW << "Creating new config file...";
-		shrd.conf.save_path(get_default_config_path());
-	}
-
-	ensure_config_defaults();
-
-	if (!shrd.conf.flush()) {
-		cout << console::color::DARK_RED << "Failed saving config at least once!";
-		full_close("Could not create/load configuration file properly!");
-		return false;
-	}
-	shrd.conf.auto_save(true);
 
 	shrd.good_plant = config_to_color(shrd.conf, "reference", "good_plant");
 	shrd.bad_plant = config_to_color(shrd.conf, "reference", "bad_plant");
@@ -1855,6 +1870,10 @@ void CoreWorker::handle_display_event(const ALLEGRO_EVENT& ev)
 		break;
 	case ALLEGRO_EVENT_DISPLAY_RESIZE:
 	{
+		int result = ev.display.height < ev.display.width ? ev.display.height : ev.display.width;
+		if (result < 200) result = 200;
+		al_resize_display(dspy.disp.get_raw_display(), result, result);
+		shrd.conf.set("display", "size_length", result);
 		post_update_display_auto();
 	}
 	break;
@@ -1964,7 +1983,7 @@ void CoreWorker::full_close(const std::string& warnstr)
 	cout << console::color::YELLOW << "- ESP32 COMMUNICATION -";
 
 	espp.procc.join();
-	espp.commu.join();
+	//espp.commu.join();
 	espp.status = _esp32_communication::package_status::NON_CONNECTED;
 
 	post_progress_val(0.10f);

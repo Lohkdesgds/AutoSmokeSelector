@@ -7,12 +7,18 @@
 
 #include <allegro5/allegro_native_dialog.h>
 
-//#define CONNECTION_VERBOSE
+#define CONNECTION_VERBOSE
 #define MYASST2(X, MSGGG) if (!(X)) {Lunaris::cout << Lunaris::console::color::RED << MSGGG; Lunaris::cout << Lunaris::console::color::RED << "AUTOMATIC ABORT BEGUN"; client.close_socket(); return; }
 
 const size_t common_async_queue_size = 0;
 const double anim_mouse_threshold = 1.5;
 const double ask_weight_in_time = 60.0; // every minute
+
+#ifdef _DEBUG
+const std::string esp32_ip_address_fixed = "127.0.0.1";
+#else
+const std::string esp32_ip_address_fixed = "192.168.4.1";
+#endif
 
 using namespace Lunaris;
 
@@ -80,7 +86,7 @@ class CoreWorker {
 	struct _esp32_communication {
 		enum class package_status {NON_CONNECTED, IDLE, PROCESSING_IMAGE};
 
-		thread commu; // this will keep the connection or keep searching for one (HANDLES: current, hosting, MUST KILL THEM ITSELF)
+		//thread commu; // this will keep the connection or keep searching for one (HANDLES: current, hosting, MUST KILL THEM ITSELF)
 		thread procc; // this thread will handle the packages async / rule the thing // DOES NOT KILL CONNECTION, UNLESS SOME KIND OF FAIL
 
 		float current_good = 0.0f, current_bad = 0.0f;
@@ -89,7 +95,7 @@ class CoreWorker {
 
 		struct host_stuff {
 			TCP_client current; // keep talking indefinitely
-			TCP_host hosting; // listen till 1. If current has socket, decline new connections
+			//TCP_host hosting; // listen till 1. If current has socket, decline new connections
 		};
 		std::unique_ptr<host_stuff> con;
 

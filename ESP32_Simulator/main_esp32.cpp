@@ -18,6 +18,7 @@ int main()
 {
 	cout << console::color::GREEN << "Starting ESP32 communication protocol tester...";
 
+	TCP_host host;
 	TCP_client client;
 	file_transf __shrd;
 	std::string __curr_working; // if empty and __shrd.files.size(), cut from __shrd.files and put here. When end, clear().
@@ -25,10 +26,15 @@ int main()
 	unsigned long __buff_len = 0;
 	char* __buff_ptr = nullptr;
 
+	if (!host.setup(socket_config().set_port(ESP_HOST_PORT))) {
+		cout << console::color::RED << "Bad news for you: can't host.";
+		return 0;
+	}
 
-	bool gud = client.setup(socket_config().set_port(ESP_HOST_PORT).set_family(socket_config::e_family::IPV4));
+	cout << console::color::AQUA << "Waiting client...";
+	client = host.listen();
 
-	if (!gud) {
+	if (!client.has_socket()) {
 		cout << console::color::RED << "Bad news for you: can't connect to localhost.";
 		return 0;
 	}
