@@ -5,13 +5,13 @@ CoreWorker::_shared::_shared(std::function<ALLEGRO_TRANSFORM(void)> f)
 {
 }
 
-void CoreWorker::_shared::__async_queue()
-{
-	if (task_queue.size()) {
-		if (auto& it = task_queue.index(0); it) it();
-		task_queue.erase(0);
-	}
-}
+//void CoreWorker::_shared::__async_queue()
+//{
+//	if (task_queue.size()) {
+//		if (auto& it = task_queue.index(0); it) it();
+//		task_queue.erase(0);
+//	}
+//}
 
 memfile* CoreWorker::_shared::get_file_font()
 {
@@ -21,6 +21,11 @@ memfile* CoreWorker::_shared::get_file_font()
 memfile* CoreWorker::_shared::get_file_atlas()
 {
 	return (memfile*)file_atlas.get();
+}
+
+CoreWorker::_display::_display()
+	: dispev(disp)
+{
 }
 
 void CoreWorker::_esp32_communication::close_all()
@@ -57,7 +62,7 @@ void CoreWorker::ensure_config_defaults()
 bool CoreWorker::get_is_loading()
 {
 	//return espp.con ? !espp.con->current.has_socket() : true;
-	return shrd.task_queue.size() > 0;
+	return shrd.on_throw_thr.id && !shrd.on_throw_thr.has_ended();
 }
 
 void CoreWorker::auto_handle_process_image(const bool asyncr)
@@ -70,14 +75,14 @@ void CoreWorker::auto_handle_process_image(const bool asyncr)
 		shrd.good_perc = how_far(shrd.good_plant, shrd.background_color);
 	};
 
-	if (asyncr) async_task(ff, 0);
+	if (asyncr) async_task(ff);
 	else ff();
 }
 
-void CoreWorker::async_task(std::function<void(void)> f, const size_t max_waiting_tasks)
+void CoreWorker::async_task(std::function<void(void)> f)
 {
-	while (shrd.task_queue.size() > max_waiting_tasks) std::this_thread::sleep_for(std::chrono::milliseconds(50));
-	shrd.task_queue.push_back(std::move(f));
+	if (shrd.on_throw_thr.id && !shrd.on_throw_thr.has_ended()) shrd.on_throw_thr.ended.get();
+	shrd.on_throw_thr = throw_thread(f);
 }
 
 void CoreWorker::auto_update_wifi_icon(const textures_enum mod)
@@ -93,10 +98,12 @@ void CoreWorker::hook_display_load()
 	shrd.progressbar_mode = true;
 	_post_update_display_one_o_one();
 	al_init_primitives_addon();
+	dspy.disp.set_fps_limit(60);
+	dspy.disp.set_economy_fps(20);
 	dspy.disp.hook_draw_function([&](const display_async& self) {
 
-		std::this_thread::sleep_until(shrd.next_draw_wait);
-		shrd.next_draw_wait = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 15);
+		//std::this_thread::sleep_until(shrd.next_draw_wait);
+		//shrd.next_draw_wait = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 15);
 
 		const float min_x = self.get_width() * 0.2;
 		const float max_x = self.get_width() * 0.8;
@@ -134,11 +141,13 @@ void CoreWorker::hook_display_default()
 {
 	shrd.progressbar_mode = false;
 	_post_update_display();
+	dspy.disp.set_fps_limit(max_fps_allowed);
+	dspy.disp.set_economy_fps(20);
 	dspy.disp.hook_draw_function([&](const display_async& self) {
 
 		try {
-			std::this_thread::sleep_until(shrd.next_draw_wait);
-			shrd.next_draw_wait = std::chrono::system_clock::now() + std::chrono::milliseconds((self.get_is_economy_mode_activated() || (al_get_time() - shrd.last_mouse_movement > anim_mouse_threshold)) ? 33 : 3);
+			//std::this_thread::sleep_until(shrd.next_draw_wait);
+			//shrd.next_draw_wait = std::chrono::system_clock::now() + std::chrono::milliseconds((self.get_is_economy_mode_activated() || (al_get_time() - shrd.last_mouse_movement > anim_mouse_threshold)) ? 33 : 3);
 			
 			shrd.background_color.clear_to_this();
 
@@ -293,7 +302,7 @@ bool CoreWorker::start_esp32_threads()
 
 					auto txtur = make_hybrid<texture>();
 
-					//dspy.disp.add_run_once_in_drawing_thread([&] {
+					//dspy.disp.post_task([&] {
 					//	gud = txtur->load(espp.package_combine_file);
 					//}).wait();
 					gud = txtur->load(espp.package_combine_file);
@@ -450,7 +459,6 @@ bool CoreWorker::full_load()
 		.set_extra_flags(ALLEGRO_RESIZABLE | ALLEGRO_OPENGL/* | ALLEGRO_NOFRAME*/)
 		.set_window_title(get_app_name())
 		.set_fullscreen(false)
-		//.set_vsync(true)
 		.set_use_basic_internal_event_system(true)
 	)) {
 		cout << console::color::DARK_RED << "Failed creating display.";
@@ -463,8 +471,8 @@ bool CoreWorker::full_load()
 	hook_display_load();
 	post_progress_val(0.01f);
 
-	cout << console::color::DARK_GRAY << "Initializing assist thread...";
-	shrd.async_queue.task_async([&] {shrd.__async_queue(); });
+	//cout << console::color::DARK_GRAY << "Initializing assist thread...";
+	//shrd.async_queue.task_async([&] {shrd.__async_queue(); });
 
 	cout << console::color::DARK_GRAY << "Setting up window icon...";
 
@@ -476,13 +484,13 @@ bool CoreWorker::full_load()
 
 	cout << console::color::DARK_GRAY << "Preparing event handlers...";
 
-	dspy.disp.hook_event_handler([&](const ALLEGRO_EVENT& ev) {handle_display_event(ev); });
+	dspy.dispev.hook_event_handler([&](const display_event& ev) {handle_display_event(ev.get_event()); });
 	shrd.mouse_work.hook_event([&](const int tp, const mouse::mouse_event& me) {handle_mouse_event(tp, me); });
 	post_progress_val(0.10f);
 
 	cout << console::color::DARK_GRAY << "Hiding mouse...";
 
-	dspy.disp.add_run_once_in_drawing_thread([&] { al_hide_mouse_cursor(dspy.disp.get_raw_display()); });
+	dspy.disp.post_task([&] { return al_hide_mouse_cursor(dspy.disp.get_raw_display()); });
 	post_progress_val(0.12f);
 
 	cout << console::color::DARK_GRAY << "Loading font resource...";
@@ -601,6 +609,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, boxposx);
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, boxposy - txtscale * 0.45f);
 			txt->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, smoothness <= 1.0f ? 1.0f : (1.0f / smoothness));
+			txt->set<float>(enum_text_float_e::DRAW_UPDATES_PER_SEC, text_updates_per_sec);
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, textstr);
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
@@ -649,6 +658,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, py);
 			txt->set<float>(enum_sprite_float_e::DRAW_MOVEMENT_RESPONSIVENESS, smoothness <= 1.0f ? 1.0f : (1.0f / smoothness));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, txtclr);
+			txt->set<float>(enum_text_float_e::DRAW_UPDATES_PER_SEC, text_updates_per_sec);
 			txt->set<safe_data<std::string>>(enum_text_safe_string_e::STRING, txtstr);
 			txt->set<int>(enum_text_integer_e::DRAW_ALIGNMENT, ALLEGRO_ALIGN_CENTER);
 			for (const auto& it : tshad) txt->shadow_insert(it);
@@ -1070,7 +1080,7 @@ bool CoreWorker::full_load()
 					s->set<color>(enum_sprite_color_e::DRAW_TINT, config_to_color(shrd.conf, "reference", "good_plant"));
 					if (down.is_unclick && down.is_mouse_on_it) {
 						color_to_config(shrd.conf, "reference", "good_plant", shrd.background_color);
-						shrd.bad_plant = shrd.background_color;
+						shrd.good_plant = shrd.background_color;
 						shrd.bad_perc = how_far(shrd.bad_plant, shrd.background_color);
 						shrd.good_perc = how_far(shrd.good_plant, shrd.background_color);
 					}
@@ -1186,6 +1196,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_text_float_e::DRAW_UPDATES_PER_SEC, text_updates_per_sec);
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
@@ -1262,6 +1273,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_text_float_e::DRAW_UPDATES_PER_SEC, text_updates_per_sec);
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
@@ -1339,6 +1351,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_text_float_e::DRAW_UPDATES_PER_SEC, text_updates_per_sec);
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
@@ -1416,6 +1429,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_text_float_e::DRAW_UPDATES_PER_SEC, text_updates_per_sec);
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
@@ -1493,6 +1507,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_text_float_e::DRAW_UPDATES_PER_SEC, text_updates_per_sec);
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
@@ -1570,6 +1585,7 @@ bool CoreWorker::full_load()
 			txt->set<float>(enum_sprite_float_e::SCALE_Y, 1.0f);
 			txt->set<float>(enum_sprite_float_e::POS_X, 0.0f);
 			txt->set<float>(enum_sprite_float_e::POS_Y, offauto - 0.12f);
+			txt->set<float>(enum_text_float_e::DRAW_UPDATES_PER_SEC, text_updates_per_sec);
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, txt->get<float>(enum_sprite_float_e::POS_X));
 			txt->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, txt->get<float>(enum_sprite_float_e::POS_Y));
 			txt->set<color>(enum_sprite_color_e::DRAW_TINT, color(200, 200, 200));
@@ -1837,21 +1853,23 @@ void CoreWorker::post_progress_val(const float v)
 
 void CoreWorker::_post_update_display()
 {
-	dspy.disp.add_run_once_in_drawing_thread([&] {
+	dspy.disp.post_task([&] {
 		transform transf;
 		transf.build_classic_fixed_proportion_auto(1.0f);
 		transf.translate_inverse(0.0f, shrd.current_offy);
 		//shrd.wifi_blk.set<float>(enum_sprite_float_e::POS_Y, -0.85f + shrd.current_offy);
 		transf.apply();
+		return true;
 	});
 }
 
 void CoreWorker::_post_update_display_one_o_one()
 {
-	dspy.disp.add_run_once_in_drawing_thread([] {
+	dspy.disp.post_task([] {
 		transform transf;
 		transf.identity();
 		transf.apply();
+		return true;
 	});
 }
 
@@ -1872,7 +1890,7 @@ void CoreWorker::handle_display_event(const ALLEGRO_EVENT& ev)
 	{
 		int result = ev.display.height < ev.display.width ? ev.display.height : ev.display.width;
 		if (result < 200) result = 200;
-		al_resize_display(dspy.disp.get_raw_display(), result, result);
+		dspy.disp.post_task([result, this] { return al_resize_display(dspy.disp.get_raw_display(), result, result); });
 		shrd.conf.set("display", "size_length", result);
 		post_update_display_auto();
 	}
@@ -1976,7 +1994,8 @@ void CoreWorker::full_close(const std::string& warnstr)
 	post_progress_val(0.00f);
 	hook_display_load(); // no resources used here
 
-	shrd.async_queue.signal_stop();
+	//shrd.async_queue.signal_stop();
+	if (shrd.on_throw_thr.id && !shrd.on_throw_thr.has_ended()) shrd.on_throw_thr.ended.get();
 	dspy.updatthr.signal_stop();
 
 	// _esp32_communication
@@ -1996,12 +2015,13 @@ void CoreWorker::full_close(const std::string& warnstr)
 	cout << console::color::YELLOW << "- DISPLAY (textures and font) -";
 
 	dspy.updatthr.join();
-	dspy.disp.add_run_once_in_drawing_thread([&] {
+	dspy.disp.post_task([&] {
 		for (auto& i : shrd.texture_map) {
 			i.store->destroy();
 		}
 		dspy.src_atlas->destroy();
 		dspy.src_font->destroy();
+		return true;
 	}).get();
 	post_progress_val(0.52f);
 
@@ -2014,8 +2034,8 @@ void CoreWorker::full_close(const std::string& warnstr)
 	shrd.get_file_atlas()->close();
 	shrd.file_font.reset_this();
 	shrd.file_atlas.reset_this();
-	shrd.async_queue.join();
-	shrd.task_queue.clear(); // drop
+	//shrd.async_queue.join();
+	//shrd.task_queue.clear(); // drop
 
 	post_progress_val(0.70f);
 

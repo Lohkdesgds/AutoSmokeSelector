@@ -7,12 +7,13 @@
 
 #include <allegro5/allegro_native_dialog.h>
 
-#define CONNECTION_VERBOSE
+//#define CONNECTION_VERBOSE
 #define MYASST2(X, MSGGG) if (!(X)) {Lunaris::cout << Lunaris::console::color::RED << MSGGG; Lunaris::cout << Lunaris::console::color::RED << "AUTOMATIC ABORT BEGUN"; client.close_socket(); return; }
 
-const size_t common_async_queue_size = 0;
 const double anim_mouse_threshold = 1.5;
 const double ask_weight_in_time = 60.0; // every minute
+const float text_updates_per_sec = 0.0f;
+const double max_fps_allowed = 240.0;
 
 #ifdef _DEBUG
 const std::string esp32_ip_address_fixed = "127.0.0.1";
@@ -38,13 +39,14 @@ class CoreWorker {
 	struct _shared {
 		std::atomic<stage_enum> screen = stage_enum::HOME; // OK
 
-		safe_vector<std::function<void(void)>> task_queue;
-		thread async_queue;
+		//safe_vector<std::function<void(void)>> task_queue;
+		//thread async_queue;
 
 		std::unordered_map<stage_enum, stage_set> screen_set; // rules for screen
 		float current_offy = 0.0f; // offset right now
 
 		config conf; // general configuration for this app
+		async_thread_info on_throw_thr;
 
 		hybrid_memory<file> file_font; // MEMFILE! // OK
 		hybrid_memory<file> file_atlas; // MEMFILE! // OK
@@ -53,7 +55,7 @@ class CoreWorker {
 
 		color bad_plant, good_plant;
 		float bad_perc = 0.0f, good_perc = 0.0f;
-		std::chrono::system_clock::time_point next_draw_wait = std::chrono::system_clock::now();
+		//std::chrono::system_clock::time_point next_draw_wait = std::chrono::system_clock::now();
 
 		std::atomic_bool kill_all = false;
 		std::atomic_int kill_tries = 0;
@@ -72,16 +74,19 @@ class CoreWorker {
 
 		_shared(std::function<ALLEGRO_TRANSFORM(void)>);
 
-		void __async_queue();
+		//void __async_queue();
 
 		memfile* get_file_font();
 		memfile* get_file_atlas();
 	};
 	struct _display {
 		display_async disp; // START // OK
+		display_event_handler dispev;
 		thread updatthr;
 		hybrid_memory<texture> src_atlas; // OK
 		hybrid_memory<font> src_font; // OK
+
+		_display();
 	};
 	struct _esp32_communication {
 		enum class package_status {NON_CONNECTED, IDLE, PROCESSING_IMAGE};
@@ -116,8 +121,8 @@ class CoreWorker {
 
 	bool get_is_loading();
 	void auto_handle_process_image(const bool = true);
-	// task, wait if number of tasks is bigger than
-	void async_task(std::function<void(void)>, const size_t = common_async_queue_size);
+
+	void async_task(std::function<void(void)>);
 	void auto_update_wifi_icon(const textures_enum);
 
 	void hook_display_load(); // simple bar, no resource needed
