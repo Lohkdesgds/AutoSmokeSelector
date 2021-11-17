@@ -7,7 +7,11 @@
 
 using namespace Lunaris;
 
+#ifdef ASS_LOCALIP
 const std::string ip = "127.0.0.1";
+#else
+const std::string ip = "192.168.4.1";
+#endif
 
 int main()
 {
