@@ -5,14 +5,6 @@ CoreWorker::_shared::_shared(std::function<ALLEGRO_TRANSFORM(void)> f)
 {
 }
 
-//void CoreWorker::_shared::__async_queue()
-//{
-//	if (task_queue.size()) {
-//		if (auto& it = task_queue.index(0); it) it();
-//		task_queue.erase(0);
-//	}
-//}
-
 memfile* CoreWorker::_shared::get_file_font()
 {
 	return (memfile*)file_font.get();
@@ -30,6 +22,13 @@ CoreWorker::_display::_display()
 
 void CoreWorker::_esp32_communication::close_all()
 {
+	status = package_status::NON_CONNECTED;
+
+	procc.signal_stop();
+	if (con) con->current.close_socket();
+	procc.join();
+	if (con) con.reset();
+
 	package_combine_file.reset_this();
 	packages_to_send.clear();
 
@@ -100,41 +99,8 @@ void CoreWorker::hook_display_load()
 	al_init_primitives_addon();
 	dspy.disp.set_fps_limit(60);
 	dspy.disp.set_economy_fps(20);
-	dspy.disp.hook_draw_function([&](const display_async& self) {
-
-		//std::this_thread::sleep_until(shrd.next_draw_wait);
-		//shrd.next_draw_wait = std::chrono::system_clock::now() + std::chrono::milliseconds(self.get_is_economy_mode_activated() ? 33 : 15);
-
-		const float min_x = self.get_width() * 0.2;
-		const float max_x = self.get_width() * 0.8;
-		const float min_y = self.get_height() * 0.75;
-		const float max_y = self.get_height() * 0.8;
-		const float& cp = shrd.generic_progressbar;// (shrd.generic_progressbar < 0.0f ? 0.0 : (shrd.generic_progressbar > 1.0f ? 1.0f : shrd.generic_progressbar));
-
-		const float x_off = min_x + static_cast<float>(max_x - min_x) * cp;
-
-		const float xoff0 = limit_range_of(x_off + static_cast<float>(2.5 * cos(3.011 * al_get_time() + 0.532)), min_x, max_x);
-		const float xoff1 = limit_range_of(x_off + static_cast<float>(2.5 * sin(4.135 * al_get_time() + 2.114)), min_x, max_x);
-		
-
-		ALLEGRO_VERTEX vf[] = {
-			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.25f + 0.05f * cp, 0.25f + 0.05f * cp, 0.25f + 0.05f * cp) },
-			ALLEGRO_VERTEX{max_x, min_y, 0, 0, 0, color(0.25f + 0.05f * cp, 0.25f + 0.05f * cp, 0.25f + 0.05f * cp) },
-			ALLEGRO_VERTEX{max_x, max_y, 0, 0, 0, color(0.15f + 0.05f * cp, 0.15f + 0.05f * cp, 0.15f + 0.05f * cp) },
-			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.15f + 0.05f * cp, 0.15f + 0.05f * cp, 0.15f + 0.05f * cp) }
-		};
-		ALLEGRO_VERTEX v1[] = {
-			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.65f - 0.3f * cp, 0.65f - 0.1f * cp, 0.65f - 0.3f * cp) },
-			ALLEGRO_VERTEX{xoff0, min_y, 0, 0, 0, color(0.73f            , 0.73f + 0.5f * cp, 0.73f            ) },
-			ALLEGRO_VERTEX{xoff1, max_y, 0, 0, 0, color(0.43f            , 0.43f + 0.5f * cp, 0.43f            ) },
-			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.35f - 0.3f * cp, 0.35f - 0.1f * cp, 0.35f - 0.3f * cp) }
-		};
-
-		color(0, 0, 0).clear_to_this();
-		int indices1[] = { 0, 1, 2, 3 };
-		al_draw_indexed_prim((void*)vf, nullptr, nullptr, indices1, 4, ALLEGRO_PRIM_TRIANGLE_FAN);
-		al_draw_indexed_prim((void*)v1, nullptr, nullptr, indices1, 4, ALLEGRO_PRIM_TRIANGLE_FAN);
-	});	
+	dspy.display_default_draw = false;
+	while (dspy.display_reflected_draw != dspy.display_default_draw) std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
 void CoreWorker::hook_display_default()
@@ -143,37 +109,14 @@ void CoreWorker::hook_display_default()
 	_post_update_display();
 	dspy.disp.set_fps_limit(max_fps_allowed);
 	dspy.disp.set_economy_fps(20);
-	dspy.disp.hook_draw_function([&](const display_async& self) {
-
-		try {
-			//std::this_thread::sleep_until(shrd.next_draw_wait);
-			//shrd.next_draw_wait = std::chrono::system_clock::now() + std::chrono::milliseconds((self.get_is_economy_mode_activated() || (al_get_time() - shrd.last_mouse_movement > anim_mouse_threshold)) ? 33 : 3);
-			
-			shrd.background_color.clear_to_this();
-
-			shrd.casted_boys[shrd.screen].safe([&](std::vector<hybrid_memory<sprite_pair>>& mypairs) {
-				for (auto& i : mypairs) {
-					i->get_notick()->draw();
-				}
-			});
-
-			{
-				shrd.wifi_blk.get_notick()->draw();
-				shrd.mouse_pair.get_notick()->draw();
-			}
-		}
-		catch (const std::exception& e) {
-			cout << console::color::DARK_RED << "Exception @ drawing thread: " << e.what();
-		}
-	});
+	dspy.display_default_draw = true;
+	while (dspy.display_reflected_draw != dspy.display_default_draw) std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
 bool CoreWorker::start_esp32_threads()
 {
 	espp.close_all();
 	espp.con = std::make_unique<_esp32_communication::host_stuff>();
-
-
 
 	espp.procc.task_async([&] {
 		if (!espp.con->current.has_socket()) {
@@ -397,30 +340,6 @@ bool CoreWorker::start_esp32_threads()
 		}
 	}, thread::speed::HIGH_PERFORMANCE);
 
-
-	//if (!espp.con->hosting.setup(socket_config().set_port(ESP_HOST_PORT))) return false;
-	//
-	//espp.commu.task_async([&] {
-	//	auto cli = espp.con->hosting.listen(5);
-	//	if (cli.has_socket()) {
-	//		if (espp.con->current.has_socket()) {
-	//			cli.close_socket(); // abort new unwanted ones
-	//		}
-	//		else { // has no connection, accept new.
-	//			cout << console::color::AQUA << "[CLIENT] New client!";
-	//			espp.con->current = std::move(cli);
-	//			espp.status = _esp32_communication::package_status::IDLE;
-	//			auto_update_wifi_icon(textures_enum::WIFI_IDLE);
-	//		}
-	//	}
-	//	if (!espp.con->current.has_socket() && espp.status != _esp32_communication::package_status::NON_CONNECTED) {
-	//		espp.status = _esp32_communication::package_status::NON_CONNECTED;
-	//		espp.ask_weight_when_time = al_get_time();
-	//		auto_update_wifi_icon(textures_enum::WIFI_SEARCHING);
-	//		cout << console::color::AQUA << "[CLIENT] Client disconnected.";
-	//	}
-	//}, thread::speed::INTERVAL, 1.0);
-
 	return true;
 }
 
@@ -466,13 +385,13 @@ bool CoreWorker::full_load()
 		return false;
 	}
 
+	dspy.disp.hook_draw_function([this](auto&) { draw(); });
+	dspy.disp.hook_exception_handler([](const std::exception& e) { cout << console::color::DARK_RED << "Exception @ drawing thread: " << e.what(); });
+
 	cout << console::color::DARK_GRAY << "Hooking progress bar...";
 
 	hook_display_load();
 	post_progress_val(0.01f);
-
-	//cout << console::color::DARK_GRAY << "Initializing assist thread...";
-	//shrd.async_queue.task_async([&] {shrd.__async_queue(); });
 
 	cout << console::color::DARK_GRAY << "Setting up window icon...";
 
@@ -2001,10 +1920,6 @@ void CoreWorker::full_close(const std::string& warnstr)
 	// _esp32_communication
 	cout << console::color::YELLOW << "- ESP32 COMMUNICATION -";
 
-	espp.procc.join();
-	//espp.commu.join();
-	espp.status = _esp32_communication::package_status::NON_CONNECTED;
-
 	post_progress_val(0.10f);
 
 	espp.close_all();
@@ -2017,12 +1932,14 @@ void CoreWorker::full_close(const std::string& warnstr)
 	dspy.updatthr.join();
 	dspy.disp.post_task([&] {
 		for (auto& i : shrd.texture_map) {
-			i.store->destroy();
+			if (i.store.valid()) i.store->destroy();
 		}
-		dspy.src_atlas->destroy();
-		dspy.src_font->destroy();
+		if (dspy.src_atlas.valid()) dspy.src_atlas->destroy();
+		if (dspy.src_font.valid()) dspy.src_font->destroy();
+		if (shrd.latest_esp32_texture.valid()) shrd.latest_esp32_texture->destroy();
 		return true;
 	}).get();
+
 	post_progress_val(0.52f);
 
 	// _shared
@@ -2030,12 +1947,9 @@ void CoreWorker::full_close(const std::string& warnstr)
 
 	shrd.mouse_work.unhook_event();
 	shrd.screen = stage_enum::HOME;
-	shrd.get_file_font()->close();
-	shrd.get_file_atlas()->close();
 	shrd.file_font.reset_this();
 	shrd.file_atlas.reset_this();
-	//shrd.async_queue.join();
-	//shrd.task_queue.clear(); // drop
+	if (shrd.latest_esp32_texture_orig.valid()) shrd.latest_esp32_texture_orig->destroy();
 
 	post_progress_val(0.70f);
 
@@ -2056,19 +1970,88 @@ void CoreWorker::full_close(const std::string& warnstr)
 	}
 }
 
+void CoreWorker::draw()
+{
+	const bool curr_modb = dspy.display_default_draw;
+	if (dspy.display_default_draw) {
+		shrd.background_color.clear_to_this();
+
+		shrd.casted_boys[shrd.screen].safe([&](std::vector<hybrid_memory<sprite_pair>>& mypairs) {
+			for (auto& i : mypairs) {
+				i->get_notick()->draw();
+			}
+			});
+
+		{
+			shrd.wifi_blk.get_notick()->draw();
+			shrd.mouse_pair.get_notick()->draw();
+		}
+	}
+	else {
+		const float min_x = dspy.disp.get_width() * 0.2;
+		const float max_x = dspy.disp.get_width() * 0.8;
+		const float min_y = dspy.disp.get_height() * 0.75;
+		const float max_y = dspy.disp.get_height() * 0.8;
+		const float& cp = shrd.generic_progressbar;// (shrd.generic_progressbar < 0.0f ? 0.0 : (shrd.generic_progressbar > 1.0f ? 1.0f : shrd.generic_progressbar));
+
+		const float x_off = min_x + static_cast<float>(max_x - min_x) * cp;
+
+		const float xoff0 = limit_range_of(x_off + static_cast<float>(2.5 * cos(3.011 * al_get_time() + 0.532)), min_x, max_x);
+		const float xoff1 = limit_range_of(x_off + static_cast<float>(2.5 * sin(4.135 * al_get_time() + 2.114)), min_x, max_x);
+
+
+		ALLEGRO_VERTEX vf[] = {
+			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.25f + 0.05f * cp, 0.25f + 0.05f * cp, 0.25f + 0.05f * cp) },
+			ALLEGRO_VERTEX{max_x, min_y, 0, 0, 0, color(0.25f + 0.05f * cp, 0.25f + 0.05f * cp, 0.25f + 0.05f * cp) },
+			ALLEGRO_VERTEX{max_x, max_y, 0, 0, 0, color(0.15f + 0.05f * cp, 0.15f + 0.05f * cp, 0.15f + 0.05f * cp) },
+			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.15f + 0.05f * cp, 0.15f + 0.05f * cp, 0.15f + 0.05f * cp) }
+		};
+		ALLEGRO_VERTEX v1[] = {
+			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.65f - 0.3f * cp, 0.65f - 0.1f * cp, 0.65f - 0.3f * cp) },
+			ALLEGRO_VERTEX{xoff0, min_y, 0, 0, 0, color(0.73f            , 0.73f + 0.5f * cp, 0.73f) },
+			ALLEGRO_VERTEX{xoff1, max_y, 0, 0, 0, color(0.43f            , 0.43f + 0.5f * cp, 0.43f) },
+			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.35f - 0.3f * cp, 0.35f - 0.1f * cp, 0.35f - 0.3f * cp) }
+		};
+
+		color(0, 0, 0).clear_to_this();
+		int indices1[] = { 0, 1, 2, 3 };
+		al_draw_indexed_prim((void*)vf, nullptr, nullptr, indices1, 4, ALLEGRO_PRIM_TRIANGLE_FAN);
+		al_draw_indexed_prim((void*)v1, nullptr, nullptr, indices1, 4, ALLEGRO_PRIM_TRIANGLE_FAN);
+	}
+	dspy.display_reflected_draw = curr_modb;
+}
+
 CoreWorker::CoreWorker()
 	: shrd(dspy.disp)
 {
 }
 
-bool CoreWorker::work_and_yield()
+bool CoreWorker::work()
 {
 	cout << "On load.";
+	timed_bomb bmb([] {
+		al_show_native_message_box(nullptr, "[A.S.S.] Demorei muito para abrir!", "Esta mensagem aparece num timeout para garantir que você consiga fechar o app caso trave", "Clique em qualquer coisa para fechar.", nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+		std::terminate();
+	}, 20.0);
 	if (!full_load()) return false;
-	cout << "On wait.";
-	while (!shrd.kill_all) std::this_thread::sleep_for(std::chrono::milliseconds(500));
-	cout << "On close.";
-	full_close();
-	cout << "Bye.";
+	bmb.defuse();
 	return true;
+}
+
+void CoreWorker::yield()
+{
+	cout << "On yield.";
+	while (!shrd.kill_all) std::this_thread::sleep_for(std::chrono::milliseconds(250));
+}
+
+void CoreWorker::close()
+{
+	cout << "On close.";
+	timed_bomb bmb([] {
+		al_show_native_message_box(nullptr, "[A.S.S.] Demorei muito para fechar!", "Esta mensagem aparece num timeout para garantir que você consiga fechar o app caso trave", "Clique em qualquer coisa para fechar.", nullptr, ALLEGRO_MESSAGEBOX_ERROR);
+		std::terminate();
+	}, 20.0);
+	full_close();
+	bmb.defuse();
+	cout << "Bye.";
 }

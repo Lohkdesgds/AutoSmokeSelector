@@ -49,8 +49,6 @@ private:
 	std::function<void(sprite*)> on_reset;
 	double last_call = -0.1 - last_call_considered_off;
 	stage_enum stg = stage_enum::_SIZE;
-
-	//sprite_pair(const hybrid_memory<sprite>&);
 public:
 	sprite_pair(hybrid_memory<sprite>&&, std::function<void(sprite*)>, std::function<void(sprite*, const cond&)>, const std::function<void(sprite*)> = [](auto) {}, const stage_enum& = stage_enum::_SIZE);
 	sprite_pair(hybrid_memory<sprite>&&);
@@ -63,9 +61,6 @@ public:
 
 	void lock_work(const stage_enum&);
 	bool does_work_on(const stage_enum&) const;
-
-	//sprite_pair clone() const;
-	//sprite_pair clone_nofunc() const;
 
 	sprite* get_think();
 	sprite* get_notick();
@@ -81,3 +76,7 @@ color config_to_color(const config&, const std::string&, const std::string&);
 void color_to_config(config&, const std::string&, const std::string&, const color&);
 
 float how_far(const color&, const color&);
+
+std::string get_default_config_path();
+
+void ensure_default_conf(config&);

@@ -240,3 +240,26 @@ float how_far(const color& a, const color& b)
 {
 	return 1.0f - static_cast<float>(pow(fabs((static_cast<double>(a.r) - static_cast<double>(b.r)) * (static_cast<double>(a.g) - static_cast<double>(b.g)) * (static_cast<double>(a.b) - static_cast<double>(b.b))), 0.05));
 }
+
+std::string get_default_config_path()
+{
+	return get_standard_path() + "config.ini";
+}
+
+void ensure_default_conf(config& co)
+{
+	co.ensure("processing", "saturation_compensation", 0.45, config::config_section_mode::SAVE);// how much sat compensation
+	co.ensure("processing", "brightness_compensation", 0.10, config::config_section_mode::SAVE);// how much compensation to bright (up to +10%)
+	co.ensure("processing", "overflow_boost", 1.05, config::config_section_mode::SAVE);// 1.0f = no overflow, less = less brightness and color
+	co.ensure("processing", "area_center_x", 0.3f, config::config_section_mode::SAVE);// width of the center to consider
+	co.ensure("processing", "area_center_y", 0.3f, config::config_section_mode::SAVE);// height of the center to consider
+	co.ensure("processing", "center_weight", 9, config::config_section_mode::SAVE);// average weight of the center. More = more times considered
+	co.ensure("reference", "good_plant", { (231.0f / 255.0f),(135.0f / 255.0f), (65.0f / 255.0f) }, config::config_section_mode::SAVE);
+	co.ensure("reference", "bad_plant", { (19.0f / 255.0f),(140.0f / 255.0f), (74.0f / 255.0f) }, config::config_section_mode::SAVE);
+	co.ensure("filemanagement", "export_path", std::string("&"), config::config_section_mode::SAVE);
+	co.ensure("filemanagement", "save_all", false, config::config_section_mode::SAVE);
+	co.ensure("display", "size_length", 800, config::config_section_mode::SAVE);
+	{
+		if (co.get_as<int>("display", "size_length") < 150) co.set("display", "size_length", 150);
+	}
+}

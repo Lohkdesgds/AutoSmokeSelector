@@ -2,14 +2,23 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="_app\core.cpp">
-      <Filter>APP</Filter>
-    </ClCompile>
     <ClCompile Include="_app\data_handling.cpp">
       <Filter>APP</Filter>
     </ClCompile>
     <ClCompile Include="..\_shared\package_definition.c">
       <Filter>SHARED</Filter>
+    </ClCompile>
+    <ClCompile Include="_app\graphics_auto.cpp">
+      <Filter>APP\_renew\graphics_auto</Filter>
+    </ClCompile>
+    <ClCompile Include="_app\storage.cpp">
+      <Filter>APP\_renew\storage</Filter>
+    </ClCompile>
+    <ClCompile Include="_app\communication.cpp">
+      <Filter>APP\_renew\communication</Filter>
+    </ClCompile>
+    <ClCompile Include="_app\asynchronous.cpp">
+      <Filter>APP\_renew\asynchronous</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -26,11 +35,23 @@
     <Filter Include="RESOURCE">
       <UniqueIdentifier>{80798a36-9a54-4167-9280-6874c85b1ebd}</UniqueIdentifier>
     </Filter>
+    <Filter Include="APP\_renew">
+      <UniqueIdentifier>{12f4078d-a75c-4fe0-9a7c-a80bb118d308}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="APP\_renew\graphics_auto">
+      <UniqueIdentifier>{166e8ec8-7ba7-4c6c-9875-0ec9ac1ef735}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="APP\_renew\storage">
+      <UniqueIdentifier>{2effb83c-2221-409f-9736-58aa16705848}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="APP\_renew\communication">
+      <UniqueIdentifier>{09f54ba2-fbf9-4759-8f25-521ed9cee44b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="APP\_renew\asynchronous">
+      <UniqueIdentifier>{70bf0515-9840-453b-88a4-453354981b88}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="_app\core.h">
-      <Filter>APP</Filter>
-    </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>RESOURCE</Filter>
     </ClInclude>
@@ -39,6 +60,18 @@
     </ClInclude>
     <ClInclude Include="..\_shared\package_definition.h">
       <Filter>SHARED</Filter>
+    </ClInclude>
+    <ClInclude Include="_app\graphics_auto.h">
+      <Filter>APP\_renew\graphics_auto</Filter>
+    </ClInclude>
+    <ClInclude Include="_app\storage.h">
+      <Filter>APP\_renew\storage</Filter>
+    </ClInclude>
+    <ClInclude Include="_app\communication.h">
+      <Filter>APP\_renew\communication</Filter>
+    </ClInclude>
+    <ClInclude Include="_app\asynchronous.h">
+      <Filter>APP\_renew\asynchronous</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

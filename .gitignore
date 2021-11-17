@@ -362,3 +362,9 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /Resources/ATLAS-assets
+/Template/x64/RC_localip/App.tlog
+/Template/x64/RC_localip/App.exe.recipe
+*.res
+/Template/RC_localip
+/Template/x64/RC_localip
+/x64/RC_localip
