@@ -13,6 +13,7 @@ void Storage::set_camera(camera_mode v, const bool wai)
 
 void Storage::set_graphic_perc(const float f)
 {
+	if (f < generic_progressbar) smooth_progressbar = 0.0f;
 	generic_progressbar = limit_range_of(f, 0.0f, 1.0f);
 }
 

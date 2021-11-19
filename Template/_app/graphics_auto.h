@@ -22,7 +22,6 @@ const std::initializer_list<multi_pair<hybrid_memory<texture>, textures_enum>> d
 };
 
 const float text_updates_per_sec = 0.0f;
-const double max_fps = 90.0;
 
 class GraphicInterface : public NonCopyable, public NonMovable {
 	display_async disp;

@@ -34,9 +34,17 @@ void Communication::_async()
 			packages_to_send.safe([&](std::vector<esp_package>& vec) {spkg = vec.front(); vec.erase(vec.begin()); });
 		}
 		else {
-			COMMUNICATION_ASSERT_AUTO(build_both_empty(&spkg) == 1, "Can't prepare empty package.");
+			if (!COMMUNICATION_ASSERT_AUTO(build_both_empty(&spkg) == 1, "Can't prepare empty package.")) {
+				_set_stat(Storage::conn_status::NON_CONNECTED);
+				return;
+			}
 		}
-		COMMUNICATION_ASSERT_AUTO(client->send((char*)&spkg, sizeof(spkg)), "Can't prepare empty package.");
+		
+		if (!COMMUNICATION_ASSERT_AUTO(client->send((char*)&spkg, sizeof(spkg)), "Can't prepare empty package.")) {
+			_set_stat(Storage::conn_status::NON_CONNECTED);
+			return;
+		}
+
 
 #ifdef CONNECTION_VERBOSE
 		cout << console::color::DARK_PURPLE << "ESP32 RECV";
@@ -44,7 +52,10 @@ void Communication::_async()
 		// ############################################
 		// # RECV
 		// ############################################
-		COMMUNICATION_ASSERT_AUTO(client->recv(pkg), "Failed recv client->");
+		if (!COMMUNICATION_ASSERT_AUTO(client->recv(pkg), "Failed recv client")) {
+			_set_stat(Storage::conn_status::NON_CONNECTED);
+			return;
+		}
 
 #ifdef CONNECTION_VERBOSE
 		cout << console::color::DARK_PURPLE << "ESP32 HANDLE";

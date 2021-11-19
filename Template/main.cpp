@@ -7,6 +7,8 @@
 
 using namespace Lunaris;
 
+//#undef ASS_LOCALIP
+
 #ifdef ASS_LOCALIP
 const std::string ip = "127.0.0.1";
 #else
@@ -25,13 +27,10 @@ int main()
 	graphics.start([&] {keep_going = false; });
 	commu.start_sync(ip, [&]()->bool {return keep_going; });
 
-	timed_bomb bmb([] { std::terminate(); }, 5.0);
 	store.conf.flush();
 
 	commu.stop();
 	graphics.stop();
-
-	bmb.defuse();
 
 	return 0;
 }

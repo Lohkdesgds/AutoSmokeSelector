@@ -19,11 +19,12 @@ public:
 	color bad_color, good_color;
 	float bad_perc = 0.0f, good_perc = 0.0f;
 	std::atomic_bool kill_all = false;
-	float generic_progressbar = 0.0f;
+	float generic_progressbar = 0.0f, smooth_progressbar = 0.0f;
 	color background_color = color(32, 32, 32);
 	hybrid_memory<file> latest_esp32_download_file;
 	hybrid_memory<texture> latest_esp32_texture_orig; // memory bitmap in memory already baby
 	conn_status wifi_status = conn_status::NON_CONNECTED;
+	std::recursive_mutex __process_image_once;
 
 	// for set_camera waiting for drawing thread to ack, this acks change (and gets the current val)
 	camera_mode camera_ack();

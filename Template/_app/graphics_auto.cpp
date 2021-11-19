@@ -40,25 +40,26 @@ void GraphicInterface::draw()
 		const float max_x = disp.get_width() * 0.8;
 		const float min_y = disp.get_height() * 0.75;
 		const float max_y = disp.get_height() * 0.8;
-		const float cp = limit_range_of(stor.generic_progressbar, 0.0f, 1.0f);
+		float& smooth_bar = stor.smooth_progressbar;
+		smooth_bar = (smooth_bar * 49.0f + (limit_range_of(stor.generic_progressbar, 0.0f, 1.0f))) / 50.0f;
 
-		const float x_off = min_x + static_cast<float>(max_x - min_x) * cp;
+		const float x_off = min_x + static_cast<float>(max_x - min_x) * smooth_bar;
 
 		const float xoff0 = limit_range_of(x_off + static_cast<float>(2.5 * cos(3.011 * al_get_time() + 0.532)), min_x, max_x);
 		const float xoff1 = limit_range_of(x_off + static_cast<float>(2.5 * sin(4.135 * al_get_time() + 2.114)), min_x, max_x);
 
 
 		ALLEGRO_VERTEX vf[] = {
-			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.25f + 0.05f * cp, 0.25f + 0.05f * cp, 0.25f + 0.05f * cp) },
-			ALLEGRO_VERTEX{max_x, min_y, 0, 0, 0, color(0.25f + 0.05f * cp, 0.25f + 0.05f * cp, 0.25f + 0.05f * cp) },
-			ALLEGRO_VERTEX{max_x, max_y, 0, 0, 0, color(0.15f + 0.05f * cp, 0.15f + 0.05f * cp, 0.15f + 0.05f * cp) },
-			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.15f + 0.05f * cp, 0.15f + 0.05f * cp, 0.15f + 0.05f * cp) }
+			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.25f + 0.05f * smooth_bar, 0.25f + 0.05f * smooth_bar, 0.25f + 0.05f * smooth_bar) },
+			ALLEGRO_VERTEX{max_x, min_y, 0, 0, 0, color(0.25f + 0.05f * smooth_bar, 0.25f + 0.05f * smooth_bar, 0.25f + 0.05f * smooth_bar) },
+			ALLEGRO_VERTEX{max_x, max_y, 0, 0, 0, color(0.15f + 0.05f * smooth_bar, 0.15f + 0.05f * smooth_bar, 0.15f + 0.05f * smooth_bar) },
+			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.15f + 0.05f * smooth_bar, 0.15f + 0.05f * smooth_bar, 0.15f + 0.05f * smooth_bar) }
 		};
 		ALLEGRO_VERTEX v1[] = {
-			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.65f - 0.3f * cp, 0.65f - 0.1f * cp, 0.65f - 0.3f * cp) },
-			ALLEGRO_VERTEX{xoff0, min_y, 0, 0, 0, color(0.73f            , 0.73f + 0.5f * cp, 0.73f) },
-			ALLEGRO_VERTEX{xoff1, max_y, 0, 0, 0, color(0.43f            , 0.43f + 0.5f * cp, 0.43f) },
-			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.35f - 0.3f * cp, 0.35f - 0.1f * cp, 0.35f - 0.3f * cp) }
+			ALLEGRO_VERTEX{min_x, min_y, 0, 0, 0, color(0.65f - 0.3f * smooth_bar, 0.65f - 0.1f * smooth_bar, 0.65f - 0.3f * smooth_bar) },
+			ALLEGRO_VERTEX{xoff0, min_y, 0, 0, 0, color(0.73f					 , 0.73f + 0.5f * smooth_bar, 0.73f) },
+			ALLEGRO_VERTEX{xoff1, max_y, 0, 0, 0, color(0.43f					 , 0.43f + 0.5f * smooth_bar, 0.43f) },
+			ALLEGRO_VERTEX{min_x, max_y, 0, 0, 0, color(0.35f - 0.3f * smooth_bar, 0.35f - 0.1f * smooth_bar, 0.35f - 0.3f * smooth_bar) }
 		};
 
 		color(0, 0, 0).clear_to_this();
@@ -74,6 +75,9 @@ void GraphicInterface::handle_display_event(const display_event& ev)
 {
 	switch(ev.get_type()) {
 	case ALLEGRO_EVENT_DISPLAY_CLOSE:
+		stor.set_graphic_perc(0.10f);
+		stor.set_camera(Storage::camera_mode::PROGRESS_BAR_NO_RESOURCE, false);
+		update_display = true;
 		on_quit_f.csafe([&](const std::function<void(void)>& f) { if (f) f(); });
 		break;
 	case ALLEGRO_EVENT_DISPLAY_RESIZE:
@@ -182,6 +186,8 @@ void GraphicInterface::auto_handle_process_image(const bool asyncr)
 	if (stor.latest_esp32_texture_orig.empty()) return;
 
 	const auto ff = [&] {
+		std::lock_guard<std::recursive_mutex> lucky(stor.__process_image_once);
+
 		stor.background_color = process_image(*stor.latest_esp32_texture_orig, stor.conf);
 		stor.bad_perc = how_far(stor.bad_color, stor.background_color);
 		stor.good_perc = how_far(stor.good_color, stor.background_color);
@@ -239,6 +245,8 @@ GraphicInterface::GraphicInterface(Storage& s, Communication& c)
 
 		cout << console::color::AQUA << "[CLIENT] Working on image...";
 
+		std::lock_guard<std::recursive_mutex> lucky(stor.__process_image_once);
+
 		latest_esp32_texture.replace_shared(std::move(txtur->duplicate())); // gonna be translated to VIDEO_BITMAP
 		stor.latest_esp32_texture_orig.replace_shared(std::move(txtur.reset_shared())); // this is MEMORY_BITMAP
 		stor.latest_esp32_download_file.replace_shared(std::move(ff.reset_shared()));
@@ -251,6 +259,11 @@ GraphicInterface::GraphicInterface(Storage& s, Communication& c)
 bool GraphicInterface::start(std::function<void(void)> qui)
 {
 	on_quit_f = qui;
+
+	double max_fps = 60.0;
+
+	for (const auto& e : get_current_modes()) if (e.freq > max_fps) max_fps = e.freq;
+
 
 	if (!disp.create(
 		display_config()
@@ -583,7 +596,12 @@ bool GraphicInterface::start(std::function<void(void)> qui)
 
 			make_common_button(6.66667f, 1.0f, 0.0f, 0.7f, color(150, 45, 45), "Sair",
 				[](auto) {},
-				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) { on_quit_f.csafe([&](const std::function<void(void)>& f) { if (f) f(); }); } },
+				[&](sprite* s, const sprite_pair::cond& down) { if (down.is_unclick && down.is_mouse_on_it) {
+					stor.set_graphic_perc(0.10f);
+					stor.set_camera(Storage::camera_mode::PROGRESS_BAR_NO_RESOURCE, false);
+					update_display = true; 
+					on_quit_f.csafe([&](const std::function<void(void)>& f) { if (f) f(); }); } 
+				},
 				[&](sprite* s) { s->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, 2.5f); });
 
 		}
@@ -651,6 +669,8 @@ bool GraphicInterface::start(std::function<void(void)> qui)
 					}
 
 					cout << console::color::AQUA << "[FILECHOOSER] Processing image...";
+
+					std::lock_guard<std::recursive_mutex> lucky(stor.__process_image_once);
 
 					latest_esp32_texture.replace_shared(std::move(txtur->duplicate())); // gonna be translated to VIDEO_BITMAP
 					stor.latest_esp32_texture_orig.replace_shared(std::move(txtur.reset_shared())); // this is MEMORY_BITMAP
@@ -1614,7 +1634,7 @@ bool GraphicInterface::start(std::function<void(void)> qui)
 	}, thread::speed::INTERVAL, 1.0 / 20);
 
 	stor.set_graphic_perc(0.99f);
-	std::this_thread::sleep_for(std::chrono::milliseconds(250));
+
 	stor.set_camera(Storage::camera_mode::DEFAULT_CAMERA, true);
 	update_display = true;
 
@@ -1625,9 +1645,10 @@ void GraphicInterface::stop()
 {
 	on_quit_f.csafe([&](const std::function<void(void)>& f) { if (f) f(); });
 
-	stor.set_graphic_perc(0.01f);
+	stor.set_graphic_perc(0.15f);
 	stor.set_camera(Storage::camera_mode::PROGRESS_BAR_NO_RESOURCE, true);
 	update_display = true;
+	stor.set_graphic_perc(0.20f);
 
 	update_pos.join();
 	disp.post_task([&] {
@@ -1639,6 +1660,9 @@ void GraphicInterface::stop()
 		if (latest_esp32_texture.valid()) latest_esp32_texture->destroy();
 		return true;
 	}).get();
+	stor.set_graphic_perc(0.50f);
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
 	mouse_work.unhook_event();
 	screen = stage_enum::HOME;
@@ -1646,13 +1670,19 @@ void GraphicInterface::stop()
 	stor.file_atlas.reset_this();
 	if (stor.latest_esp32_texture_orig.valid()) stor.latest_esp32_texture_orig->destroy();
 
+	stor.set_graphic_perc(0.75f);
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
 	for (auto& i : casted_boys) {
 		i.second.safe([](std::vector<hybrid_memory<sprite_pair>>& vec) {
 			vec.clear();
 		});
 	}
 
-	stor.set_graphic_perc(0.99f);
+	stor.set_graphic_perc(0.95f);
 
-	disp.destroy();
+	std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+	disp.destroy().wait();
 }
