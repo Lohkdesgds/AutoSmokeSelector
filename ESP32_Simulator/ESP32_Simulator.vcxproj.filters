@@ -7,9 +7,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
     <Filter Include="SHARED">
       <UniqueIdentifier>{789cb907-2d0f-49dd-ac8a-32bef93f125d}</UniqueIdentifier>
     </Filter>
@@ -18,5 +15,8 @@
     <ClInclude Include="..\_shared\package_definition.h">
       <Filter>SHARED</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>

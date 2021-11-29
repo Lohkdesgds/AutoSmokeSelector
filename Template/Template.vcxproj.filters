@@ -22,8 +22,8 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
     <None Include="..\resources\font_ttf.bin" />
+    <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="SHARED">
