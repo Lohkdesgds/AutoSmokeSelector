@@ -359,6 +359,37 @@ bool GraphicInterface::start(std::function<void(void)> qui)
 	texture_map[textures_enum::WIFI_COMMAND]		= make_hybrid<texture>(src_atlas->create_sub(750, 180, 100, 100));
 
 	latest_esp32_texture = make_hybrid<texture>(); // just so it gets replaced later
+	funky_texture = make_hybrid_derived<texture, texture_functional>();
+	{
+		texture_functional* fft = (texture_functional*)funky_texture.get();
+		if (!fft->create(500, 500)) {
+			cout << console::color::DARK_RED << "Failed creating border bitmap.";
+			on_quit_f.csafe([&](const std::function<void(void)>& f) { if (f) f(); });
+			return false;
+		}
+
+		fft->hook_function([this] (texture& self) {
+			const float cx = 0.5f * self.get_width();
+			const float cy = 0.5f * self.get_height();
+			const float curr_ax = 0.5f * stor.conf.get_as<float>("processing", "area_center_x") * self.get_width();
+			const float curr_ay = 0.5f * stor.conf.get_as<float>("processing", "area_center_y") * self.get_height();
+						
+			color(0.0f, 0.0f, 0.0f, 0.5f).clear_to_this();
+
+			al_set_blender(ALLEGRO_ADD, ALLEGRO_ONE, ALLEGRO_ZERO);
+
+			al_draw_filled_rectangle(cx - curr_ax, cy - curr_ay, cx + curr_ax, cy + curr_ay, color(0, 0, 0, 0));
+			
+			al_draw_line(cx - curr_ax, 0, cx - curr_ax, self.get_height(), color(90, 90, 90, 175), 3.0f);
+			al_draw_line(cx + curr_ax, 0, cx + curr_ax, self.get_height(), color(90, 90, 90, 175), 3.0f);
+			al_draw_line(0, cy - curr_ay, self.get_width(), cy - curr_ay, color(90, 90, 90, 175), 3.0f);
+			al_draw_line(0, cy + curr_ay, self.get_width(), cy + curr_ay, color(90, 90, 90, 175), 3.0f);
+
+			al_draw_rectangle(cx - curr_ax, cy - curr_ay, cx + curr_ax, cy + curr_ay, color(150, 255, 150), 3.0f);
+
+			al_set_blender(ALLEGRO_ADD, ALLEGRO_ONE, ALLEGRO_INVERSE_ALPHA);
+		});
+	}
 
 	stor.set_graphic_perc(0.75f);
 	cout << console::color::DARK_GRAY << "Preparing scenes...";
@@ -866,6 +897,20 @@ bool GraphicInterface::start(std::function<void(void)> qui)
 			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
 			blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
 			blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
+			casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(std::move(each)));
+
+			// rectangle autofunc (must copy above's values but texture)
+			make_blk();
+			blk->texture_insert(funky_texture);
+			blk->set<float>(enum_sprite_float_e::SCALE_G, 1.5f);
+			blk->set<float>(enum_sprite_float_e::SCALE_Y, 0.7f);
+			blk->set<float>(enum_sprite_float_e::POS_X, 0.0f);
+			blk->set<float>(enum_sprite_float_e::POS_Y, -0.17f);
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_X, blk->get<float>(enum_sprite_float_e::POS_X));
+			blk->set<float>(enum_sprite_float_e::RO_DRAW_PROJ_POS_Y, blk->get<float>(enum_sprite_float_e::POS_Y));
+			//blk->set<float>(enum_sprite_float_e::OUT_OF_SIGHT_POS, 9999.9f);
+			//blk->set<color>(enum_sprite_color_e::DRAW_DRAW_BOX, color(0.5f, 0.5f, 0.5f));
+			//blk->set<bool>(enum_sprite_boolean_e::DRAW_DRAW_BOX, true);
 			casted_boys[curr_set].push_back(make_hybrid<sprite_pair>(std::move(each)));
 
 			make_common_button(3.5f, 1.0f, -0.7f, -0.85f, color(200, 25, 25), "Voltar",

@@ -34,6 +34,7 @@ class GraphicInterface : public NonCopyable, public NonMovable {
 	hybrid_memory<texture> src_atlas;
 	hybrid_memory<font> src_font;
 	hybrid_memory<texture> latest_esp32_texture; // set after processing
+	hybrid_memory<texture> funky_texture; // overlay over esp32 pic
 
 	mouse mouse_work;
 	sprite_pair mouse_pair; // has block in it
